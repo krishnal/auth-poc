@@ -1,0 +1,152 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: '22'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        cd backend && npm ci
+        cd ../frontend && npm ci
+        cd ../infrastructure && npm ci
+
+    - name: Lint code
+      run: |
+        cd backend && npm run lint
+        cd ../frontend && npm run lint
+
+    - name: Run backend tests
+      run: |
+        cd backend && npm test
+
+    - name: Run frontend tests
+      run: |
+        cd frontend && npm test -- --coverage --watchAll=false
+
+    - name: Build applications
+      run: |
+        cd backend && npm run build
+        cd ../frontend && npm run build
+        cd ../infrastructure && npm run build
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        directory: ./frontend/coverage
+
+  deploy-dev:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install CDK
+      run: npm install -g aws-cdk
+
+    - name: Install dependencies
+      run: |
+        cd infrastructure && npm ci
+
+    - name: Deploy to development
+      run: |
+        cd infrastructure
+        npm run cdk deploy -- \
+          --context stage=dev \
+          --context googleClientId=${{ secrets.GOOGLE_CLIENT_ID }} \
+          --context googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
+          --require-approval never
+
+  deploy-prod:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install CDK
+      run: npm install -g aws-cdk
+
+    - name: Install dependencies
+      run: |
+        cd infrastructure && npm ci
+
+    - name: Deploy to production
+      run: |
+        cd infrastructure
+        npm run cdk deploy -- \
+          --context stage=prod \
+          --context googleClientId=${{ secrets.GOOGLE_CLIENT_ID_PROD }} \
+          --context googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET_PROD }} \
+          --require-approval never
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'

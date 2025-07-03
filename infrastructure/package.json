@@ -1,0 +1,38 @@
+{
+    "name": "auth-poc-infrastructure",
+    "version": "1.0.0",
+    "engines": {
+        "node": ">=22.0.0"
+    },
+    "scripts": {
+        "build": "tsc",
+        "build:backend": "cd ../backend && npm run build",
+        "build:all": "npm run build:backend && npm run build",
+        "build:optimized": "node scripts/build-optimized.js",
+        "watch": "tsc -w",
+        "test": "jest",
+        "cdk": "cdk",
+        "deploy": "npm run build:optimized && cdk deploy",
+        "destroy": "cdk destroy",
+        "diff": "npm run build:optimized && cdk diff",
+        "synth": "npm run build:optimized && cdk synth",
+        "synth:fast": "npm run build:all && cdk synth",
+        "setup:env": "cp .env.example .env && echo '✅ Created .env file. Please edit it with your actual values.'",
+        "check:env": "node -e \"require('dotenv').config(); const isPlaceholder = (v) => !v || v.includes('your-') || v.includes('here'); console.log('✅ Environment check:'); console.log('GOOGLE_CLIENT_ID:', isPlaceholder(process.env.GOOGLE_CLIENT_ID) ? '❌ Needs real value' : '✅ Set'); console.log('GOOGLE_CLIENT_SECRET:', isPlaceholder(process.env.GOOGLE_CLIENT_SECRET) ? '❌ Needs real value' : '✅ Set'); console.log('STAGE:', process.env.STAGE || 'dev (default)');\""
+    },
+    "devDependencies": {
+        "@types/jest": "^29.4.0",
+        "@types/node": "^22.16.0",
+        "aws-cdk": "^2.160.0",
+        "dotenv": "^17.0.1",
+        "jest": "^29.5.0",
+        "ts-jest": "^29.0.5",
+        "ts-node": "^10.9.1",
+        "typescript": "~5.0.4"
+    },
+    "dependencies": {
+        "aws-cdk-lib": "^2.160.0",
+        "constructs": "^10.0.0",
+        "source-map-support": "^0.5.21"
+    }
+}
