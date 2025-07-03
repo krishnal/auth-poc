@@ -67,6 +67,104 @@ auth-poc/
 └── README.md
 ```
 
+## 📈 Auth Flow
+```mermaid
+sequenceDiagram
+    participant User as User
+    participant Frontend as React SPA<br/>(Frontend)
+    participant Browser as Browser
+    participant Google as Google OAuth
+    participant APIGW as API Gateway
+    participant Auth as Lambda Authorizer
+    participant Backend as Backend Lambda<br/>(Fastify)
+    participant Cognito as AWS Cognito<br/>User Pool
+
+    Note over User, Cognito: Email/Password Authentication Flow
+    
+    User->>Frontend: Enter email/password
+    Frontend->>APIGW: POST /auth/login<br/>{email, password}
+    APIGW->>Backend: Forward request
+    Backend->>Backend: AuthService.login()
+    Backend->>Cognito: InitiateAuthCommand<br/>USER_PASSWORD_AUTH
+    Cognito->>Backend: AccessToken, IdToken, RefreshToken
+    Backend->>APIGW: 200 OK + tokens
+    APIGW->>Frontend: Return tokens
+    Frontend->>Frontend: Store tokens in localStorage
+    
+    Note over Frontend, Cognito: Protected Resource Access
+    
+    Frontend->>APIGW: GET /api/user<br/>Authorization: Bearer {token}
+    APIGW->>Auth: Validate token
+    Auth->>Auth: AuthorizationService.authorizeRequest()
+    Auth->>Cognito: Verify JWT token
+    Cognito->>Auth: Token valid + user info
+    Auth->>Auth: Create AuthContext
+    Auth->>APIGW: Allow policy + context
+    APIGW->>Backend: Forward with auth context
+    Backend->>APIGW: User profile data
+    APIGW->>Frontend: Return user data
+    Frontend->>User: Display dashboard
+
+    Note over User, Cognito: Google OAuth Authentication Flow
+    
+    User->>Frontend: Click "Sign in with Google"
+    Frontend->>Browser: Redirect to Google OAuth
+    Browser->>Google: Authorization request<br/>response_type=code
+    Google->>Browser: User consent & authorization
+    Browser->>Google: User authorizes app
+    Google->>Browser: Redirect to /auth/callback?code=xyz
+    Browser->>Frontend: Load AuthCallback component
+    Frontend->>Frontend: Extract code from URL
+    Frontend->>APIGW: POST /auth/google<br/>{code, redirectUri}
+    APIGW->>Backend: Forward request
+    Backend->>Backend: AuthService.authenticateWithGoogle()
+    Backend->>Google: Exchange code for tokens
+    Google->>Backend: ID token + access token
+    Backend->>Google: Verify ID token
+    Google->>Backend: Token payload validated
+    Backend->>Backend: handleGoogleFederatedAuth()
+    Backend->>Cognito: AdminGetUser (check if exists)
+    alt User doesn't exist
+        Cognito->>Backend: User not found
+        Backend->>Cognito: AdminCreateUser<br/>(federated user)
+        Cognito->>Backend: User created
+    else User exists
+        Cognito->>Backend: User details
+    end
+    Backend->>Backend: createFederatedTokens()<br/>Custom google.{base64} format
+    Backend->>APIGW: 200 OK + custom tokens
+    APIGW->>Frontend: Return custom tokens
+    Frontend->>Frontend: Store tokens in localStorage
+    
+    Note over Frontend, Cognito: Protected Resource Access (Google Token)
+    
+    Frontend->>APIGW: GET /api/user<br/>Authorization: Bearer google.{base64}
+    APIGW->>Auth: Validate custom token
+    Auth->>Auth: AuthorizationService.authorizeRequest()
+    Auth->>Auth: Try Cognito verification (fails)
+    Auth->>Auth: Try Google verification
+    Auth->>Auth: Detect custom token format
+    Auth->>Auth: verifyCustomGoogleToken()
+    Auth->>Auth: Decode base64 payload<br/>Verify expiry & audience
+    Auth->>Auth: Create AuthContext
+    Auth->>APIGW: Allow policy + context
+    APIGW->>Backend: Forward with auth context
+    Backend->>APIGW: User profile data
+    APIGW->>Frontend: Return user data
+    Frontend->>User: Display dashboard
+
+    Note over Frontend, Cognito: Token Refresh Flow
+    
+    Frontend->>APIGW: POST /auth/refresh<br/>{refreshToken}
+    APIGW->>Backend: Forward request
+    Backend->>Backend: AuthService.refreshToken()
+    Backend->>Cognito: InitiateAuthCommand<br/>REFRESH_TOKEN_AUTH
+    Cognito->>Backend: New AccessToken + IdToken
+    Backend->>APIGW: 200 OK + new tokens
+    APIGW->>Frontend: Return new tokens
+    Frontend->>Frontend: Update stored tokens
+```
+
 ## 🛠️ Prerequisites
 
 - **Node.js 22+** 
