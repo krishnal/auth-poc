@@ -3,7 +3,7 @@ import {
     AdminUpdateUserAttributesCommand,
   } from '@aws-sdk/client-cognito-identity-provider';
   import { BaseService, ServiceContext } from './base-service';
-  import { NotFoundError, CognitoServiceError } from '../utils/errors';
+  import { NotFoundError } from '../utils/errors';
   
   export interface UserProfile {
     id: string;

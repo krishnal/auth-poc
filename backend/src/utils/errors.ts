@@ -292,7 +292,6 @@ export class ErrorHandler {
   }
 
   private normalizeAWSError(error: any, requestId: string): BaseError {
-    const statusCode = error.statusCode || error.$metadata?.httpStatusCode || 500;
     const message = this.extractErrorMessage(error, 'AWS service error');
     
     if (error.name?.includes('Cognito') || error.name?.includes('CognitoIdentityProvider')) {

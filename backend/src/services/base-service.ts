@@ -1,5 +1,6 @@
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { OAuth2Client } from 'google-auth-library';
+import { createHmac } from 'crypto';
 import { Logger } from '../utils/logger';
 import { getConfig, AppConfig } from '../config';
 import { getEnvironmentContext, EnvironmentContext } from '../utils/environment';
@@ -52,7 +53,6 @@ export abstract class BaseService {
    * @returns The calculated secret hash
    */
   protected calculateSecretHash(username: string): string {
-    const crypto = require('crypto');
     const message = username + this.config.aws.cognito.clientId;
     const secret = this.config.aws.cognito.clientSecret;
     
@@ -60,7 +60,7 @@ export abstract class BaseService {
       throw new Error('COGNITO_CLIENT_SECRET not configured');
     }
     
-    return crypto.createHmac('sha256', secret).update(message).digest('base64');
+    return createHmac('sha256', secret).update(message).digest('base64');
   }
 
   /**

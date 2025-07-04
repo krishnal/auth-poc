@@ -1,15 +1,10 @@
 import {
     InitiateAuthCommand,
     SignUpCommand,
-    ConfirmSignUpCommand,
     ForgotPasswordCommand,
     ConfirmForgotPasswordCommand,
-    GetUserCommand,
     AdminGetUserCommand,
     AdminCreateUserCommand,
-    AdminSetUserPasswordCommand,
-    AdminInitiateAuthCommand,
-    RespondToAuthChallengeCommand,
   } from '@aws-sdk/client-cognito-identity-provider';
   import {
     LoginRequest,
@@ -24,7 +19,6 @@ import {
   import { 
     AuthenticationError, 
     CognitoServiceError, 
-    GoogleServiceError,
     InvalidTokenError 
   } from '../utils/errors';
   

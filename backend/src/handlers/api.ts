@@ -1,5 +1,4 @@
 // backend/src/handlers/api.ts
-import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda';
 import { fastify, FastifyInstance } from 'fastify';
 import awsLambdaFastify from '@fastify/aws-lambda';
 import cors from '@fastify/cors';
@@ -12,8 +11,7 @@ import {
   extractLambdaEvent, 
   extractAWSEventContext 
 } from '../utils/environment';
-import { handleError, BaseError, extractErrorMessage } from '../utils/errors';
-import { serviceFactory } from '../services/base-service';
+import { handleError, extractErrorMessage } from '../utils/errors';
 import { Logger } from '../utils/logger';
 import { createErrorResponse, createSuccessResponse } from '../utils/response';
 import {

@@ -1,5 +1,7 @@
 // backend/src/utils/response.ts
-export interface ApiResponse<T = any> {
+import { getConfig } from '../config';
+
+export interface ApiResponse<_T = any> {
     statusCode: number;
     headers: Record<string, string>;
     body: string;
@@ -10,7 +12,7 @@ export interface ApiResponse<T = any> {
     data: T,
     headers: Record<string, string> = {}
   ): ApiResponse<T> => {
-    const config = require('../config').getConfig();
+    const config = getConfig();
     return {
       statusCode,
       headers: {
@@ -29,7 +31,7 @@ export interface ApiResponse<T = any> {
     statusCode: number,
     message: string,
     details?: any
-  ): ApiResponse => {
+  ): ApiResponse<any> => {
     return createResponse(statusCode, {
       error: {
         message,
