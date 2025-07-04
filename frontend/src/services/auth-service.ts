@@ -1,4 +1,4 @@
-import { User, AuthTokens, LoginCredentials, SignupData, GoogleAuthData } from '../types/auth';
+import { User, AuthTokens, LoginCredentials, SignupData } from '../types/auth';
 import { apiClient } from './api-client';
 
 class AuthService {
@@ -12,13 +12,9 @@ class AuthService {
     return response.data;
   }
 
-  async authenticateWithGoogle(data: GoogleAuthData): Promise<AuthTokens> {
-    console.log('data in authenticateWithGoogle', data);
-    const response = await apiClient.post<AuthTokens>('/auth/google', data);
-    console.log('response in authenticateWithGoogle', response);
-    console.log('response in authenticateWithGoogle', response.data);
-    return response.data;
-  }
+  // Google authentication is now handled via server-side OAuth redirect
+  // Users click "Continue with Google" button which redirects to /api/auth/google
+  // Backend handles the OAuth flow and redirects back to /dashboard
 
   async refreshToken(data: { refreshToken: string }): Promise<AuthTokens> {
     const response = await apiClient.post<AuthTokens>('/auth/refresh', data);
@@ -45,6 +41,10 @@ class AuthService {
   async updateUserProfile(userData: Partial<User>): Promise<User> {
     const response = await apiClient.put<User>('/api/user', userData);
     return response.data;
+  }
+
+  async logout(): Promise<void> {
+    await apiClient.get<void>('/auth/logout');
   }
 
   async getProtectedData(): Promise<any> {

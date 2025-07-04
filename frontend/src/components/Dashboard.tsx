@@ -22,7 +22,7 @@ export const Dashboard: React.FC = () => {
       const data = await authService.getProtectedData();
       setProtectedData(data);
     } catch (error) {
-      console.error('Failed to load protected data:', error);
+      // Error is handled by API client
     } finally {
       setLoading(false);
     }
@@ -35,7 +35,7 @@ export const Dashboard: React.FC = () => {
       await updateUser(editForm);
       setIsEditing(false);
     } catch (error) {
-      console.error('Failed to update profile:', error);
+      // Error is handled by auth context
     } finally {
       setLoading(false);
     }
