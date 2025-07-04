@@ -6,7 +6,6 @@ import { extractErrorMessage } from '../utils/errors';
 import {
   LoginRequest,
   SignupRequest,
-  GoogleAuthRequest,
   RefreshTokenRequest,
   ForgotPasswordRequest,
   ResetPasswordRequest,
@@ -75,23 +74,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       }
     });
 
-    // Google OAuth (legacy POST endpoint for backward compatibility)
-    fastify.post<{ Body: GoogleAuthRequest }>('/auth/google', async (request, reply) => {
-      const logger = new Logger({ action: 'google-auth-legacy' });
-      
-      try {
-        logger.info('Legacy Google auth attempt started');
-        
-        const result = await authService.authenticateWithGoogle(request.body);
-        
-        logger.info('Legacy Google auth successful');
-        return createSuccessResponse(result);
-      } catch (error) {
-        logger.error('Legacy Google auth failed', error);
-        reply.code(400);
-        return createErrorResponse(400, extractErrorMessage(error, 'Google authentication failed'));
-      }
-    });
+
 
     // OAuth callback endpoint
     fastify.get('/auth/callback', async (request, reply) => {
@@ -207,7 +190,7 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     });
 
     // Logout endpoint to clear cookies
-    fastify.post('/auth/logout', async (request, reply) => {
+    fastify.get('/auth/logout', async (request, reply) => {
       const logger = new Logger({ action: 'logout' });
       
       try {

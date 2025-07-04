@@ -8,7 +8,6 @@ import {
   import {
     LoginRequest,
     SignupRequest,
-    GoogleAuthRequest,
     RefreshTokenRequest,
     ForgotPasswordRequest,
     ResetPasswordRequest,
@@ -92,26 +91,7 @@ import {
       );
     }
   
-      // Legacy Google OAuth method - keeping for backward compatibility during migration
-  async authenticateWithGoogle(_request: GoogleAuthRequest): Promise<CognitoAuthResult> {
-    const logger = this.logger.withContext({ action: 'google-auth-legacy' });
-    
-    try {
-      logger.info('Legacy Google authentication - this method is deprecated');
-      logger.info('Please use the new OAuth2 flow via GET /auth/google instead');
-      
-      // For now, throw an error to encourage migration to new flow
-      throw new Error('Legacy Google authentication is deprecated. Please use the new OAuth2 flow via GET /auth/google');
-    } catch (error) {
-      logger.error('Legacy Google authentication failed', error);
-      throw error;
-    }
-  }
-  
-    
 
-    // Old custom Google OAuth methods removed - now using proper Cognito federation
-    // These methods have been replaced by getGoogleAuthUrl() and exchangeCodeForTokens()
   
     async refreshToken(request: RefreshTokenRequest): Promise<CognitoAuthResult> {
       return this.executeOperation(
