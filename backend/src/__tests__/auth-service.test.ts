@@ -33,7 +33,7 @@ describe('AuthService', () => {
         },
       };
 
-      mockCognitoClient.send.mockResolvedValueOnce(mockAuthResult);
+      (mockCognitoClient.send as jest.Mock).mockResolvedValueOnce(mockAuthResult);
 
       const result = await authService.login({
         email: 'test@example.com',
@@ -41,18 +41,18 @@ describe('AuthService', () => {
       });
 
       expect(result).toEqual({
-        AccessToken: 'mock-access-token',
-        IdToken: 'mock-id-token',
-        RefreshToken: 'mock-refresh-token',
-        ExpiresIn: 3600,
-        TokenType: 'Bearer',
+        accessToken: 'mock-access-token',
+        idToken: 'mock-id-token',
+        refreshToken: 'mock-refresh-token',
+        expiresIn: 3600,
+        tokenType: 'Bearer',
       });
 
       expect(mockCognitoClient.send).toHaveBeenCalledTimes(1);
     });
 
     it('should throw error for invalid credentials', async () => {
-      mockCognitoClient.send.mockRejectedValueOnce(new Error('Invalid credentials'));
+      (mockCognitoClient.send as jest.Mock).mockRejectedValueOnce(new Error('Invalid credentials'));
 
       await expect(
         authService.login({
@@ -69,7 +69,7 @@ describe('AuthService', () => {
         UserSub: 'mock-user-id',
       };
 
-      mockCognitoClient.send.mockResolvedValueOnce(mockSignupResult);
+      (mockCognitoClient.send as jest.Mock).mockResolvedValueOnce(mockSignupResult);
 
       const result = await authService.signup({
         email: 'newuser@example.com',
