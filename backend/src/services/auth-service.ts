@@ -3,9 +3,8 @@ import {
     SignUpCommand,
     ForgotPasswordCommand,
     ConfirmForgotPasswordCommand,
-    AdminGetUserCommand,
-    AdminCreateUserCommand,
   } from '@aws-sdk/client-cognito-identity-provider';
+  import axios from 'axios';
   import {
     LoginRequest,
     SignupRequest,
@@ -93,145 +92,26 @@ import {
       );
     }
   
-    async authenticateWithGoogle(request: GoogleAuthRequest): Promise<CognitoAuthResult> {
-      const logger = this.logger.withContext({ action: 'google-auth' });
+      // Legacy Google OAuth method - keeping for backward compatibility during migration
+  async authenticateWithGoogle(_request: GoogleAuthRequest): Promise<CognitoAuthResult> {
+    const logger = this.logger.withContext({ action: 'google-auth-legacy' });
+    
+    try {
+      logger.info('Legacy Google authentication - this method is deprecated');
+      logger.info('Please use the new OAuth2 flow via GET /auth/google instead');
       
-      try {
-        logger.info('Starting Google authentication with request', { 
-          hasCode: !!request.code, 
-          redirectUri: request.redirectUri 
-        });
-
-        // Exchange code for tokens with better error handling
-        logger.info('Attempting token exchange with Google', {
-          codeLength: request.code?.length,
-          redirectUri: request.redirectUri,
-          googleClientId: process.env.GOOGLE_CLIENT_ID?.substring(0, 20) + '...'
-        });
-
-        const { tokens } = await this.googleClient.getToken({
-          code: request.code,
-          redirect_uri: request.redirectUri,
-        });
-
-        if (!tokens.id_token) {
-          throw new Error('No ID token received from Google');
-        }
-
-        logger.info('Google tokens received successfully');
-
-        // Verify the Google token
-        const ticket = await this.googleClient.verifyIdToken({
-          idToken: tokens.id_token,
-          audience: process.env.GOOGLE_CLIENT_ID!,
-        });
-
-        const payload = ticket.getPayload();
-        if (!payload || !payload.email) {
-          throw new Error('Invalid Google token payload or missing email');
-        }
-
-        logger.info('Google token verified', { email: payload.email });
-
-        // For Google federated users, return a custom token structure
-        // that bypasses Cognito password authentication entirely
-        const federatedResult = await this.handleGoogleFederatedAuth(payload);
-
-        logger.info('Google federated authentication successful');
-        return federatedResult;
-      } catch (error) {
-        logger.error('Google authentication failed', error);
-        throw error;
-      }
+      // For now, throw an error to encourage migration to new flow
+      throw new Error('Legacy Google authentication is deprecated. Please use the new OAuth2 flow via GET /auth/google');
+    } catch (error) {
+      logger.error('Legacy Google authentication failed', error);
+      throw error;
     }
+  }
   
     
 
-    private async handleGoogleFederatedAuth(googleUser: any): Promise<CognitoAuthResult> {
-      try {
-        // Ensure user exists in Cognito
-        const user = await this.ensureGoogleUserExists(googleUser);
-        console.log('user in handleGoogleFederatedAuth', user);
-        // For federated users, we'll create a custom token structure
-        // that mimics Cognito tokens but works with our authorizer
-
-        const customTokens = this.createFederatedTokens({...googleUser, userId: user.Username});
-
-        this.logger.info('Created federated tokens for Google user', { email: googleUser.email });
-        return customTokens;
-      } catch (error) {
-        this.logger.error('Failed to handle Google federated auth', error);
-        throw error;
-      }
-    }
-
-    private async ensureGoogleUserExists(googleUser: any): Promise<any> {
-      return this.executeOperation(
-        async () => {
-          try {
-            // Try to get existing user
-            const user = await this.cognitoClient.send(new AdminGetUserCommand({
-              UserPoolId: this.config.aws.cognito.userPoolId,
-              Username: googleUser.email,
-            }));
-            
-            this.createLogger({ email: googleUser.email }).info('Google user already exists in Cognito');
-            return user;
-          } catch (error) {
-            // User doesn't exist, create them as federated user
-            const userAttributes = this.createUserAttributes({
-              email: googleUser.email,
-              email_verified: 'true',
-              given_name: googleUser.given_name || '',
-              family_name: googleUser.family_name || '',
-            });
-
-            const user = await this.cognitoClient.send(new AdminCreateUserCommand({
-              UserPoolId: this.config.aws.cognito.userPoolId,
-              Username: googleUser.email,
-              UserAttributes: userAttributes,
-              MessageAction: 'SUPPRESS',
-              // No password - this is a federated user
-            }));
-
-            this.createLogger({ email: googleUser.email }).info('Created Google federated user in Cognito');
-            return user;
-          }
-        },
-        'Ensure Google User Exists',
-        { email: googleUser.email }
-      );
-    }
-
-    private createFederatedTokens(googleUser: any): CognitoAuthResult {
-      // Create custom tokens that work with our authorizer
-      // These will be recognized as Google tokens by the authorizer
-      const basePayload = {
-        sub: googleUser.userId,
-        email: googleUser.email,
-        email_verified: googleUser.email_verified,
-        name: googleUser.name,
-        given_name: googleUser.given_name,
-        family_name: googleUser.family_name,
-        picture: googleUser.picture,
-        aud: process.env.GOOGLE_CLIENT_ID,
-        iss: 'https://accounts.google.com',
-        iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour expiry
-      };
-
-      // Create a simple base64 encoded token that our authorizer can recognize
-      const tokenPayload = Buffer.from(JSON.stringify(basePayload)).toString('base64');
-      const customToken = `google.${tokenPayload}`;
-
-      return {
-        accessToken: customToken,
-        idToken: customToken,
-        refreshToken: '', // No refresh for federated tokens in this simple implementation
-        expiresIn: 3600,
-        tokenType: 'Bearer',
-      };
-    }
+    // Old custom Google OAuth methods removed - now using proper Cognito federation
+    // These methods have been replaced by getGoogleAuthUrl() and exchangeCodeForTokens()
   
     async refreshToken(request: RefreshTokenRequest): Promise<CognitoAuthResult> {
       return this.executeOperation(
@@ -295,6 +175,82 @@ import {
         },
         'Password Reset',
         { email: request.email }
+      );
+    }
+
+    /**
+     * Constructs the Cognito OAuth2 authorize URL for Google authentication
+     * @param redirectUri - The callback URL after authentication
+     * @returns The OAuth2 authorize URL
+     */
+    getGoogleAuthUrl(redirectUri: string): string {
+      const cognitoDomain = this.config.aws.cognito.domain;
+      const clientId = this.config.aws.cognito.clientId;
+      
+      if (!cognitoDomain) {
+        throw new Error('COGNITO_DOMAIN is not configured');
+      }
+
+      const params = new URLSearchParams({
+        client_id: clientId,
+        response_type: 'code',
+        scope: 'openid email profile',
+        redirect_uri: redirectUri,
+        identity_provider: 'Google',
+      });
+
+      return `https://${cognitoDomain}.auth.${this.config.aws.region}.amazoncognito.com/oauth2/authorize?${params.toString()}`;
+    }
+
+    /**
+     * Exchanges the OAuth2 authorization code for tokens via Cognito
+     * @param code - The authorization code from the callback
+     * @param redirectUri - The same redirect URI used in the authorize request
+     * @returns Promise<CognitoAuthResult> The tokens from Cognito
+     */
+    async exchangeCodeForTokens(code: string, redirectUri: string): Promise<CognitoAuthResult> {
+      return this.executeOperation(
+        async () => {
+          const cognitoDomain = this.config.aws.cognito.domain;
+          const clientId = this.config.aws.cognito.clientId;
+          const clientSecret = await this.getCognitoClientSecret();
+          
+          if (!cognitoDomain) {
+            throw new Error('COGNITO_DOMAIN is not configured');
+          }
+
+          const tokenEndpoint = `${cognitoDomain}/oauth2/token`;
+          
+          const params = new URLSearchParams({
+            grant_type: 'authorization_code',
+            client_id: clientId,
+            client_secret: clientSecret,
+            code: code,
+            redirect_uri: redirectUri,
+          });
+
+          const response = await axios.post(tokenEndpoint, params, {
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+          });
+
+          const tokens = response.data;
+          
+          if (!tokens.access_token || !tokens.id_token) {
+            throw new Error('Invalid token response from Cognito');
+          }
+
+          return {
+            accessToken: tokens.access_token,
+            idToken: tokens.id_token,
+            refreshToken: tokens.refresh_token,
+            expiresIn: tokens.expires_in,
+            tokenType: tokens.token_type,
+          };
+        },
+        'OAuth Token Exchange',
+        { code: code.substring(0, 10) + '...' }
       );
     }
 

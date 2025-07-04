@@ -8,8 +8,7 @@ import { Logger } from '../utils/logger';
 const authorizationService = new AuthorizationService();
 
 export const verifyCognitoToken = authorizationService.verifyCognitoToken.bind(authorizationService);
-export const verifyGoogleToken = authorizationService.verifyGoogleToken.bind(authorizationService);
-export const verifyCustomGoogleToken = authorizationService.verifyCustomGoogleToken.bind(authorizationService);
+// Google token verification methods removed - now using Cognito federation
 
 const generatePolicy = (
   principalId: string,
@@ -59,21 +58,19 @@ export const handler = async (
     });
 
     // Convert AuthContext to string values for API Gateway
+    // All tokens are now Cognito tokens (including federated Google users)
     const stringAuthContext = {
       userId: String(authContext.userId),
       email: String(authContext.email),
       tokenType: String(authContext.tokenType),
       emailVerified: String(authContext.emailVerified),
-      ...(authContext.tokenType === 'cognito' && {
-        username: String(authContext.username || authContext.userId),
-        tokenUse: String(authContext.tokenUse || ''),
-      }),
-      ...(authContext.tokenType === 'google' && {
-        name: String(authContext.name || ''),
-        givenName: String(authContext.givenName || ''),
-        familyName: String(authContext.familyName || ''),
-        picture: String(authContext.picture || ''),
-      }),
+      username: String(authContext.username || authContext.userId),
+      tokenUse: String(authContext.tokenUse || ''),
+      // Additional attributes for federated users
+      name: String(authContext.name || ''),
+      givenName: String(authContext.givenName || ''),
+      familyName: String(authContext.familyName || ''),
+      picture: String(authContext.picture || ''),
     };
 
     return generatePolicy(authContext.userId, 'Allow', event.methodArn, stringAuthContext);

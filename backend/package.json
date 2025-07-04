@@ -10,7 +10,7 @@
     "build": "tsc",
     "watch": "tsc -w",
     "start": "node dist/handlers/api.js",
-    "dev": "ts-node src/handlers/api.ts",
+    "dev": "ts-node src/server.ts",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",
@@ -19,8 +19,10 @@
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.400.0",
     "@fastify/aws-lambda": "^4.0.0",
+    "@fastify/cookie": "^9.4.0",
     "@fastify/cors": "^9.0.0",
     "aws-jwt-verify": "^4.0.0",
+    "axios": "^1.10.0",
     "dotenv": "^17.0.1",
     "fastify": "^4.21.0",
     "google-auth-library": "^9.0.0"
