@@ -1,18 +1,11 @@
 import {
-    CognitoIdentityProviderClient,
     InitiateAuthCommand,
     SignUpCommand,
-    ConfirmSignUpCommand,
     ForgotPasswordCommand,
     ConfirmForgotPasswordCommand,
-    GetUserCommand,
     AdminGetUserCommand,
     AdminCreateUserCommand,
-    AdminSetUserPasswordCommand,
-    AdminInitiateAuthCommand,
-    RespondToAuthChallengeCommand,
   } from '@aws-sdk/client-cognito-identity-provider';
-  import { OAuth2Client } from 'google-auth-library';
   import {
     LoginRequest,
     SignupRequest,
@@ -22,97 +15,82 @@ import {
     ResetPasswordRequest,
     CognitoAuthResult,
   } from '../types/auth';
-  import { Logger } from '../utils/logger';
+  import { BaseService, ServiceContext } from './base-service';
+  import { 
+    AuthenticationError, 
+    CognitoServiceError, 
+    InvalidTokenError 
+  } from '../utils/errors';
   
-  export class AuthService {
-    private cognitoClient: CognitoIdentityProviderClient;
-    private googleClient: OAuth2Client;
-    private logger: Logger;
-  
-    constructor() {
-      this.cognitoClient = new CognitoIdentityProviderClient({
-        region: process.env.AWS_REGION || 'us-west-2',
-      });
-      
-      this.googleClient = new OAuth2Client(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET
-      );
-      
-      this.logger = new Logger({ service: 'AuthService' });
+  export class AuthService extends BaseService {
+    constructor(context: ServiceContext = {}) {
+      super('AuthService', context);
+      this.validateConfiguration();
     }
   
     async login(request: LoginRequest): Promise<CognitoAuthResult> {
-      const logger = this.logger.withContext({ email: request.email });
-      
-      try {
-        const command = new InitiateAuthCommand({
-          AuthFlow: 'USER_PASSWORD_AUTH',
-          ClientId: process.env.COGNITO_CLIENT_ID!,
-          AuthParameters: {
-            USERNAME: request.email,
-            PASSWORD: request.password,
-            SECRET_HASH: this.calculateSecretHash(request.email),
-          },
-        });
-  
-        const response = await this.cognitoClient.send(command);
-        logger.error('response', response);
-        if (!response.AuthenticationResult) {
-          throw new Error('Authentication failed');
-        }
-  
-        logger.info('User login successful');
-  
-        return {
-          accessToken: response.AuthenticationResult.AccessToken!,
-          idToken: response.AuthenticationResult.IdToken!,
-          refreshToken: response.AuthenticationResult.RefreshToken!,
-          expiresIn: response.AuthenticationResult.ExpiresIn!,
-          tokenType: response.AuthenticationResult.TokenType!,
-        };
-      } catch (error) {
-        logger.error('Login failed', error);
-        throw error;
-      }
+      return this.executeOperation(
+        async () => {
+          const command = new InitiateAuthCommand({
+            AuthFlow: 'USER_PASSWORD_AUTH',
+            ClientId: this.config.aws.cognito.clientId,
+            AuthParameters: {
+              USERNAME: request.email,
+              PASSWORD: request.password,
+              SECRET_HASH: this.calculateSecretHash(request.email),
+            },
+          });
+    
+          const response = await this.cognitoClient.send(command);
+          
+          if (!response.AuthenticationResult) {
+            throw new AuthenticationError('Authentication failed');
+          }
+    
+          return {
+            accessToken: response.AuthenticationResult.AccessToken!,
+            idToken: response.AuthenticationResult.IdToken!,
+            refreshToken: response.AuthenticationResult.RefreshToken!,
+            expiresIn: response.AuthenticationResult.ExpiresIn!,
+            tokenType: response.AuthenticationResult.TokenType!,
+          };
+        },
+        'User Login',
+        { email: request.email }
+      );
     }
   
     async signup(request: SignupRequest): Promise<{ userSub: string; message: string }> {
-      const logger = this.logger.withContext({ email: request.email });
-      
-      try {
-        const userAttributes = [
-          { Name: 'email', Value: request.email },
-        ];
-  
-        if (request.givenName) {
-          userAttributes.push({ Name: 'given_name', Value: request.givenName });
-        }
-  
-        if (request.familyName) {
-          userAttributes.push({ Name: 'family_name', Value: request.familyName });
-        }
-  
-        const command = new SignUpCommand({
-          ClientId: process.env.COGNITO_CLIENT_ID!,
-          Username: request.email,
-          Password: request.password,
-          UserAttributes: userAttributes,
-          SecretHash: this.calculateSecretHash(request.email),
-        });
-  
-        const response = await this.cognitoClient.send(command);
-  
-        logger.info('User signup successful', { userSub: response.UserSub });
-  
-        return {
-          userSub: response.UserSub!,
-          message: 'User created successfully. Please check your email for verification.',
-        };
-      } catch (error) {
-        logger.error('Signup failed', error);
-        throw error;
-      }
+      return this.executeOperation(
+        async () => {
+          const userAttributes = this.createUserAttributes({
+            email: request.email,
+            ...(request.givenName && { given_name: request.givenName }),
+            ...(request.familyName && { family_name: request.familyName }),
+          });
+    
+          const command = new SignUpCommand({
+            ClientId: this.config.aws.cognito.clientId,
+            Username: request.email,
+            Password: request.password,
+            UserAttributes: userAttributes,
+            SecretHash: this.calculateSecretHash(request.email),
+          });
+    
+          const response = await this.cognitoClient.send(command);
+    
+          if (!response.UserSub) {
+            throw new CognitoServiceError('Failed to create user - no user ID returned');
+          }
+    
+          return {
+            userSub: response.UserSub,
+            message: 'User created successfully. Please check your email for verification.',
+          };
+        },
+        'User Signup',
+        { email: request.email }
+      );
     }
   
     async authenticateWithGoogle(request: GoogleAuthRequest): Promise<CognitoAuthResult> {
@@ -188,38 +166,41 @@ import {
     }
 
     private async ensureGoogleUserExists(googleUser: any): Promise<any> {
-      let user;
-      try {
-        // Try to get existing user
-        user = await this.cognitoClient.send(new AdminGetUserCommand({
-          UserPoolId: process.env.COGNITO_USER_POOL_ID!,
-          Username: googleUser.email,
-        }));
-        console.log('user in ensureGoogleUserExists', user);
-        this.logger.info('Google user already exists in Cognito', { email: googleUser.email });
-      } catch (error) {
-        // User doesn't exist, create them as federated user
-        try {
-          user = await this.cognitoClient.send(new AdminCreateUserCommand({
-            UserPoolId: process.env.COGNITO_USER_POOL_ID!,
-            Username: googleUser.email,
-            UserAttributes: [
-              { Name: 'email', Value: googleUser.email },
-              { Name: 'email_verified', Value: 'true' },
-              { Name: 'given_name', Value: googleUser.given_name || '' },
-              { Name: 'family_name', Value: googleUser.family_name || '' },
-            ],
-            MessageAction: 'SUPPRESS',
-            // No password - this is a federated user
-          }));
+      return this.executeOperation(
+        async () => {
+          try {
+            // Try to get existing user
+            const user = await this.cognitoClient.send(new AdminGetUserCommand({
+              UserPoolId: this.config.aws.cognito.userPoolId,
+              Username: googleUser.email,
+            }));
+            
+            this.createLogger({ email: googleUser.email }).info('Google user already exists in Cognito');
+            return user;
+          } catch (error) {
+            // User doesn't exist, create them as federated user
+            const userAttributes = this.createUserAttributes({
+              email: googleUser.email,
+              email_verified: 'true',
+              given_name: googleUser.given_name || '',
+              family_name: googleUser.family_name || '',
+            });
 
-          this.logger.info('Created Google federated user in Cognito', { email: googleUser.email });
-        } catch (createError) {
-          this.logger.error('Failed to create Google user in Cognito', createError);
-          throw createError;
-        }
-      }
-      return user;
+            const user = await this.cognitoClient.send(new AdminCreateUserCommand({
+              UserPoolId: this.config.aws.cognito.userPoolId,
+              Username: googleUser.email,
+              UserAttributes: userAttributes,
+              MessageAction: 'SUPPRESS',
+              // No password - this is a federated user
+            }));
+
+            this.createLogger({ email: googleUser.email }).info('Created Google federated user in Cognito');
+            return user;
+          }
+        },
+        'Ensure Google User Exists',
+        { email: googleUser.email }
+      );
     }
 
     private createFederatedTokens(googleUser: any): CognitoAuthResult {
@@ -253,80 +234,70 @@ import {
     }
   
     async refreshToken(request: RefreshTokenRequest): Promise<CognitoAuthResult> {
-      try {
-        const command = new InitiateAuthCommand({
-          AuthFlow: 'REFRESH_TOKEN_AUTH',
-          ClientId: process.env.COGNITO_CLIENT_ID!,
-          AuthParameters: {
-            REFRESH_TOKEN: request.refreshToken,
-            SECRET_HASH: this.calculateSecretHash(''), // Username not needed for refresh
-          },
-        });
-  
-        const response = await this.cognitoClient.send(command);
-  
-        if (!response.AuthenticationResult) {
-          throw new Error('Token refresh failed');
-        }
-  
-        return {
-          accessToken: response.AuthenticationResult.AccessToken!,
-          idToken: response.AuthenticationResult.IdToken!,
-          refreshToken: request.refreshToken, // Refresh token doesn't change
-          expiresIn: response.AuthenticationResult.ExpiresIn!,
-          tokenType: response.AuthenticationResult.TokenType!,
-        };
-      } catch (error) {
-        this.logger.error('Token refresh failed', error);
-        throw error;
-      }
+      return this.executeOperation(
+        async () => {
+          const command = new InitiateAuthCommand({
+            AuthFlow: 'REFRESH_TOKEN_AUTH',
+            ClientId: this.config.aws.cognito.clientId,
+            AuthParameters: {
+              REFRESH_TOKEN: request.refreshToken,
+              SECRET_HASH: this.calculateSecretHash(''), // Username not needed for refresh
+            },
+          });
+    
+          const response = await this.cognitoClient.send(command);
+    
+          if (!response.AuthenticationResult) {
+            throw new InvalidTokenError('Token refresh failed');
+          }
+    
+          return {
+            accessToken: response.AuthenticationResult.AccessToken!,
+            idToken: response.AuthenticationResult.IdToken!,
+            refreshToken: request.refreshToken, // Refresh token doesn't change
+            expiresIn: response.AuthenticationResult.ExpiresIn!,
+            tokenType: response.AuthenticationResult.TokenType!,
+          };
+        },
+        'Token Refresh',
+        { refreshToken: request.refreshToken.substring(0, 10) + '...' }
+      );
     }
   
     async forgotPassword(request: ForgotPasswordRequest): Promise<void> {
-      try {
-        const command = new ForgotPasswordCommand({
-          ClientId: process.env.COGNITO_CLIENT_ID!,
-          Username: request.email,
-          SecretHash: this.calculateSecretHash(request.email),
-        });
-  
-        await this.cognitoClient.send(command);
-        this.logger.info('Forgot password email sent', { email: request.email });
-      } catch (error) {
-        this.logger.error('Forgot password failed', error);
-        throw error;
-      }
+      return this.executeOperation(
+        async () => {
+          const command = new ForgotPasswordCommand({
+            ClientId: this.config.aws.cognito.clientId,
+            Username: request.email,
+            SecretHash: this.calculateSecretHash(request.email),
+          });
+    
+          await this.cognitoClient.send(command);
+        },
+        'Forgot Password',
+        { email: request.email }
+      );
     }
   
     async resetPassword(request: ResetPasswordRequest): Promise<void> {
-      try {
-        const command = new ConfirmForgotPasswordCommand({
-          ClientId: process.env.COGNITO_CLIENT_ID!,
-          Username: request.email,
-          ConfirmationCode: request.confirmationCode,
-          Password: request.newPassword,
-          SecretHash: this.calculateSecretHash(request.email),
-        });
-  
-        await this.cognitoClient.send(command);
-        this.logger.info('Password reset successful', { email: request.email });
-      } catch (error) {
-        this.logger.error('Password reset failed', error);
-        throw error;
-      }
+      return this.executeOperation(
+        async () => {
+          const command = new ConfirmForgotPasswordCommand({
+            ClientId: this.config.aws.cognito.clientId,
+            Username: request.email,
+            ConfirmationCode: request.confirmationCode,
+            Password: request.newPassword,
+            SecretHash: this.calculateSecretHash(request.email),
+          });
+    
+          await this.cognitoClient.send(command);
+        },
+        'Password Reset',
+        { email: request.email }
+      );
     }
-  
-    private calculateSecretHash(username: string): string {
-      const crypto = require('crypto');
-      const message = username + process.env.COGNITO_CLIENT_ID;
-      const secret = process.env.COGNITO_CLIENT_SECRET;
-      
-      if (!secret) {
-        throw new Error('COGNITO_CLIENT_SECRET not configured');
-      }
-      
-      return crypto.createHmac('sha256', secret).update(message).digest('base64');
-    }
+
   
     private generateTemporaryPassword(): string {
       const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';

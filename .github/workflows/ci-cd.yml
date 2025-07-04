@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: CI Pipeline
 
 on:
   push:
@@ -7,11 +7,11 @@ on:
     branches: [main]
 
 env:
-  AWS_REGION: us-east-1
   NODE_VERSION: '22'
 
 jobs:
   test:
+    name: Build, Test & Lint
     runs-on: ubuntu-latest
     
     steps:
@@ -22,116 +22,69 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
 
-    - name: Install dependencies
-      run: |
-        cd backend && npm ci
-        cd ../frontend && npm ci
-        cd ../infrastructure && npm ci
+    - name: Cache backend dependencies
+      uses: actions/cache@v3
+      with:
+        path: backend/node_modules
+        key: ${{ runner.os }}-backend-${{ hashFiles('backend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-backend-
 
-    - name: Lint code
-      run: |
-        cd backend && npm run lint
-        cd ../frontend && npm run lint
+    - name: Cache frontend dependencies
+      uses: actions/cache@v3
+      with:
+        path: frontend/node_modules
+        key: ${{ runner.os }}-frontend-${{ hashFiles('frontend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-frontend-
+
+    - name: Cache infrastructure dependencies
+      uses: actions/cache@v3
+      with:
+        path: infrastructure/node_modules
+        key: ${{ runner.os }}-infrastructure-${{ hashFiles('infrastructure/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-infrastructure-
+
+    - name: Install backend dependencies
+      run: cd backend && npm ci
+
+    - name: Install frontend dependencies
+      run: cd frontend && npm ci
+
+    - name: Install infrastructure dependencies
+      run: cd infrastructure && npm ci
+
+    - name: Lint backend code
+      run: cd backend && npm run lint
+
+    - name: Lint frontend code
+      run: cd frontend && npm run lint
 
     - name: Run backend tests
-      run: |
-        cd backend && npm test
+      run: cd backend && npm test
 
     - name: Run frontend tests
-      run: |
-        cd frontend && npm test -- --coverage --watchAll=false
+      run: cd frontend && npm test -- --coverage --watchAll=false
 
-    - name: Build applications
-      run: |
-        cd backend && npm run build
-        cd ../frontend && npm run build
-        cd ../infrastructure && npm run build
+    - name: Build backend
+      run: cd backend && npm run build
 
-    - name: Upload coverage reports
+    - name: Build frontend
+      run: cd frontend && npm run build
+
+    - name: Build infrastructure
+      run: cd infrastructure && npm run build
+
+    - name: Upload test coverage
       uses: codecov/codecov-action@v3
       with:
         directory: ./frontend/coverage
-
-  deploy-dev:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
-
-    - name: Install CDK
-      run: npm install -g aws-cdk
-
-    - name: Install dependencies
-      run: |
-        cd infrastructure && npm ci
-
-    - name: Deploy to development
-      run: |
-        cd infrastructure
-        npm run cdk deploy -- \
-          --context stage=dev \
-          --context googleClientId=${{ secrets.GOOGLE_CLIENT_ID }} \
-          --context googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }} \
-          --require-approval never
-
-  deploy-prod:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    environment: production
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
-
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
-        aws-region: ${{ env.AWS_REGION }}
-
-    - name: Install CDK
-      run: npm install -g aws-cdk
-
-    - name: Install dependencies
-      run: |
-        cd infrastructure && npm ci
-
-    - name: Deploy to production
-      run: |
-        cd infrastructure
-        npm run cdk deploy -- \
-          --context stage=prod \
-          --context googleClientId=${{ secrets.GOOGLE_CLIENT_ID_PROD }} \
-          --context googleClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET_PROD }} \
-          --require-approval never
+        fail_ci_if_error: false
 
   security-scan:
+    name: Security Scan
     runs-on: ubuntu-latest
     
     steps:

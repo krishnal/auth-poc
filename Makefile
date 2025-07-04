@@ -19,12 +19,7 @@ setup-local: ## Setup local development environment
 		cp .env.example .env; \
 		echo "Please update .env with your AWS and Google OAuth credentials"; \
 	fi
-	cd infrastructure && npm run setup:env
 	@echo "Local setup complete!"
-
-check-env: ## Check environment configuration
-	@echo "Checking environment configuration..."
-	cd infrastructure && npm run check:env
 
 dev: ## Start local development environment
 	@echo "Starting development environment..."
@@ -59,19 +54,11 @@ lint-fix: ## Fix linting issues
 
 deploy-dev: ## Deploy to development environment
 	@echo "Deploying to development..."
-	cd infrastructure && npm run deploy -- --context stage=dev
+	cd infrastructure && npm run cdk -- deploy --context stage=dev
 
 deploy-prod: ## Deploy to production environment
 	@echo "Deploying to production..."
-	cd infrastructure && npm run deploy -- --context stage=prod
-
-synth-dev: ## Synthesize CloudFormation for development
-	@echo "Synthesizing development stack..."
-	cd infrastructure && npm run synth -- --context stage=dev
-
-synth-prod: ## Synthesize CloudFormation for production
-	@echo "Synthesizing production stack..."
-	cd infrastructure && npm run synth -- --context stage=prod
+	cd infrastructure && npm run cdk -- deploy --context stage=prod
 
 destroy-dev: ## Destroy development environment
 	@echo "Destroying development environment..."

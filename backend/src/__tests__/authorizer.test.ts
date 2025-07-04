@@ -1,10 +1,11 @@
 import { APIGatewayTokenAuthorizerEvent, Context } from 'aws-lambda';
-import { handler } from '../handlers/authorizer';
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
+import { AuthorizationService } from '../services/authorization-service';
 
 // Mock dependencies
 jest.mock('aws-jwt-verify');
 jest.mock('google-auth-library');
+jest.mock('../services/authorization-service');
 
 const mockEvent: APIGatewayTokenAuthorizerEvent = {
   type: 'TOKEN',
@@ -34,22 +35,35 @@ describe('Lambda Authorizer', () => {
     // Set environment variables
     process.env.COGNITO_USER_POOL_ID = 'us-east-1_XXXXXXXXX';
     process.env.COGNITO_CLIENT_ID = 'test-client-id';
-    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
+    process.env.GOOGLE_CLIENT_ID = 'test-google-client-id.apps.googleusercontent.com';
+    process.env.COGNITO_CLIENT_SECRET = 'test-client-secret';
+    
+    // Reset the module cache to ensure fresh imports
+    jest.resetModules();
   });
 
   it('should allow valid Cognito token', async () => {
-    const mockVerifier = {
-      verify: jest.fn().mockResolvedValue({
-        sub: 'user-123',
-        email: 'test@example.com',
-        'cognito:username': 'testuser',
-        token_use: 'access',
-        email_verified: true,
-      }),
-    };
+    // Mock the entire authorization service module
+    jest.doMock('../services/authorization-service', () => ({
+      AuthorizationService: jest.fn().mockImplementation(() => ({
+        authorizeRequest: jest.fn().mockResolvedValue({
+          userId: 'user-123',
+          email: 'test@example.com',
+          tokenType: 'cognito',
+          emailVerified: true,
+          username: 'testuser',
+          tokenUse: 'access',
+        }),
+        verifyCognitoToken: jest.fn(),
+        verifyGoogleToken: jest.fn(),
+        verifyCustomGoogleToken: jest.fn(),
+      })),
+      AuthorizationError: class extends Error {},
+    }));
 
-    (CognitoJwtVerifier.create as jest.Mock).mockReturnValue(mockVerifier);
-
+    // Re-import the handler after mocking
+    const { handler } = await import('../handlers/authorizer');
+    
     const result = await handler(mockEvent, mockContext);
 
     expect(result.principalId).toBe('user-123');
@@ -60,12 +74,20 @@ describe('Lambda Authorizer', () => {
   });
 
   it('should deny invalid token', async () => {
-    const mockVerifier = {
-      verify: jest.fn().mockRejectedValue(new Error('Invalid token')),
-    };
+    // Mock the entire authorization service module
+    jest.doMock('../services/authorization-service', () => ({
+      AuthorizationService: jest.fn().mockImplementation(() => ({
+        authorizeRequest: jest.fn().mockRejectedValue(new Error('Invalid token')),
+        verifyCognitoToken: jest.fn(),
+        verifyGoogleToken: jest.fn(),
+        verifyCustomGoogleToken: jest.fn(),
+      })),
+      AuthorizationError: class extends Error {},
+    }));
 
-    (CognitoJwtVerifier.create as jest.Mock).mockReturnValue(mockVerifier);
-
+    // Re-import the handler after mocking
+    const { handler } = await import('../handlers/authorizer');
+    
     const result = await handler(mockEvent, mockContext);
 
     expect(result.principalId).toBe('user');
@@ -78,6 +100,20 @@ describe('Lambda Authorizer', () => {
       authorizationToken: '',
     };
 
+    // Mock the entire authorization service module
+    jest.doMock('../services/authorization-service', () => ({
+      AuthorizationService: jest.fn().mockImplementation(() => ({
+        authorizeRequest: jest.fn().mockRejectedValue(new Error('Missing Authorization header')),
+        verifyCognitoToken: jest.fn(),
+        verifyGoogleToken: jest.fn(),
+        verifyCustomGoogleToken: jest.fn(),
+      })),
+      AuthorizationError: class extends Error {},
+    }));
+
+    // Re-import the handler after mocking
+    const { handler } = await import('../handlers/authorizer');
+    
     const result = await handler(eventWithoutToken, mockContext);
 
     expect(result.principalId).toBe('user');

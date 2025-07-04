@@ -2,7 +2,7 @@ import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
 export const GoogleLoginButton: React.FC = () => {
-  const { loginWithGoogle, isLoading } = useAuth();
+  const { isLoading } = useAuth();
 
   const handleGoogleLogin = () => {
     const googleClientId = process.env.REACT_APP_GOOGLE_CLIENT_ID;

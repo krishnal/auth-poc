@@ -1,14 +1,8 @@
 // backend/src/handlers/authorizer.ts
-import * as dotenv from 'dotenv';
-import * as path from 'path';
-
-// Load environment variables for local development
-if (process.env.NODE_ENV !== 'production') {
-  dotenv.config({ path: path.resolve(__dirname, '../../.env') });
-}
-
 import { APIGatewayTokenAuthorizerEvent, APIGatewayAuthorizerResult, Context } from 'aws-lambda';
 import { AuthorizationService, AuthorizationError } from '../services/authorization-service';
+import { getEnvironmentContext } from '../utils/environment';
+import { Logger } from '../utils/logger';
 
 // Export the functions for backward compatibility and reuse
 const authorizationService = new AuthorizationService();
@@ -43,20 +37,25 @@ export const handler = async (
   event: APIGatewayTokenAuthorizerEvent,
   context: Context
 ): Promise<APIGatewayAuthorizerResult> => {
-  console.log('Authorizer invoked', { 
-    requestId: context.awsRequestId,
-    methodArn: event.methodArn 
+  const environmentContext = getEnvironmentContext(event);
+  const logger = new Logger({ 
+    service: 'Authorizer',
+    requestId: context.awsRequestId 
+  });
+
+  logger.info('Authorizer invoked', { 
+    methodArn: event.methodArn,
+    environment: environmentContext.isAWS ? 'aws' : 'local',
   });
 
   try {
     // Use the authorization service to verify token and get auth context
     const authContext = await authorizationService.authorizeRequest(event.authorizationToken);
 
-    console.log('Authorization successful', {
+    logger.info('Authorization successful', {
       userId: authContext.userId,
       email: authContext.email,
       tokenType: authContext.tokenType,
-      contextKeys: Object.keys(authContext),
     });
 
     // Convert AuthContext to string values for API Gateway
@@ -80,15 +79,18 @@ export const handler = async (
     return generatePolicy(authContext.userId, 'Allow', event.methodArn, stringAuthContext);
 
   } catch (error) {
-    console.error('Authorization failed:', error);
+    logger.error('Authorization failed', error);
 
     if (error instanceof AuthorizationError) {
-      // For known errors, return Deny policy
+      logger.warn('Known authorization error', { 
+        error: error.message,
+        statusCode: error.statusCode 
+      });
       return generatePolicy('user', 'Deny', event.methodArn);
     }
 
     // For unexpected errors, also deny but log for investigation
-    console.error('Unexpected authorization error:', error);
+    logger.error('Unexpected authorization error', error);
     return generatePolicy('user', 'Deny', event.methodArn);
   }
 };
