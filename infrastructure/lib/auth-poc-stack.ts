@@ -92,8 +92,8 @@ export class AuthPocStack extends cdk.Stack {
           cognito.OAuthScope.PROFILE,
         ],
         callbackUrls: [
-          'http://localhost:3000/auth/callback',
-          `https://auth-${props.stage}.demo.krishnal.com/auth/callback`,
+          'http://localhost:3001/api/auth/callback',
+          `https://auth-${props.stage}.demo.krishnal.com/api/auth/callback`,
         ],
         logoutUrls: [
           'http://localhost:3000/',
@@ -110,6 +110,14 @@ export class AuthPocStack extends cdk.Stack {
     });
 
     this.userPoolClient.node.addDependency(googleProvider);
+
+    // Create Cognito Domain for OAuth2 endpoints
+    const cognitoDomain = new cognito.UserPoolDomain(this, 'CognitoDomain', {
+      userPool: this.userPool,
+      cognitoDomain: {
+        domainPrefix: `auth-poc-${props.stage}`,
+      },
+    });
 
     // Create Lambda Authorizer Function
     this.authorizerFunction = new nodejs.NodejsFunction(this, 'AuthorizerFunction', {
@@ -162,7 +170,8 @@ export class AuthPocStack extends cdk.Stack {
       environment: {
         COGNITO_USER_POOL_ID: this.userPool.userPoolId,
         COGNITO_CLIENT_ID: this.userPoolClient.userPoolClientId,
-        COGNITO_CLIENT_SECRET: '', // Will be set via parameter store
+        // COGNITO_CLIENT_SECRET is retrieved at runtime from the User Pool Client
+        COGNITO_DOMAIN: cognitoDomain.domainName,
         STAGE: props.stage,
         GOOGLE_CLIENT_ID: props.googleClientId,
         GOOGLE_CLIENT_SECRET: props.googleClientSecret,
@@ -184,6 +193,15 @@ export class AuthPocStack extends cdk.Stack {
       effect: iam.Effect.ALLOW,
       actions: [
         'cognito-idp:*',
+      ],
+      resources: [this.userPool.userPoolArn],
+    }));
+
+    // Grant permissions to describe User Pool Client (needed to get client secret)
+    backendFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'cognito-idp:DescribeUserPoolClient',
       ],
       resources: [this.userPool.userPoolArn],
     }));
@@ -236,7 +254,22 @@ export class AuthPocStack extends cdk.Stack {
 
     // Google OAuth endpoints
     const googleResource = authResource.addResource('google');
+    // Keep the old POST endpoint for backward compatibility during migration
     googleResource.addMethod('POST', 
+      new apigateway.LambdaIntegration(backendFunction, {
+        proxy: true,
+      })
+    );
+    // Add new GET endpoint for OAuth redirect
+    googleResource.addMethod('GET', 
+      new apigateway.LambdaIntegration(backendFunction, {
+        proxy: true,
+      })
+    );
+
+    // OAuth callback endpoint
+    const callbackResource = authResource.addResource('callback');
+    callbackResource.addMethod('GET', 
       new apigateway.LambdaIntegration(backendFunction, {
         proxy: true,
       })
@@ -331,6 +364,11 @@ export class AuthPocStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'UserPoolClientId', {
       value: this.userPoolClient.userPoolClientId,
       description: 'Cognito User Pool Client ID',
+    });
+
+    new cdk.CfnOutput(this, 'CognitoDomainUrl', {
+      value: cognitoDomain.domainName,
+      description: 'Cognito Domain for OAuth2 endpoints',
     });
 
     new cdk.CfnOutput(this, 'ApiUrl', {

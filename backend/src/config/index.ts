@@ -14,6 +14,7 @@ export interface AppConfig {
       userPoolId: string;
       clientId: string;
       clientSecret: string;
+      domain: string;
     };
   };
   
@@ -64,7 +65,8 @@ function validateConfiguration(): AppConfig {
         cognito: {
           userPoolId: getRequiredEnvVar('COGNITO_USER_POOL_ID'),
           clientId: getRequiredEnvVar('COGNITO_CLIENT_ID'),
-          clientSecret: getRequiredEnvVar('COGNITO_CLIENT_SECRET'),
+          clientSecret: getOptionalEnvVar('COGNITO_CLIENT_SECRET', ''), // Will be retrieved at runtime if empty
+          domain: getOptionalEnvVar('COGNITO_DOMAIN', ''),
         },
       },
       google: {

@@ -1,4 +1,4 @@
-import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
+import { CognitoIdentityProviderClient, DescribeUserPoolClientCommand } from '@aws-sdk/client-cognito-identity-provider';
 import { OAuth2Client } from 'google-auth-library';
 import { createHmac } from 'crypto';
 import { Logger } from '../utils/logger';
@@ -108,6 +108,34 @@ export abstract class BaseService {
     return Object.entries(attributes)
       .filter(([_, value]) => value !== undefined && value !== null)
       .map(([key, value]) => ({ Name: key, Value: String(value) }));
+  }
+
+  /**
+   * Gets the Cognito client secret at runtime if not available in config
+   * @returns Promise<string> The client secret
+   */
+  protected async getCognitoClientSecret(): Promise<string> {
+    if (this.config.aws.cognito.clientSecret) {
+      return this.config.aws.cognito.clientSecret;
+    }
+
+    try {
+      const command = new DescribeUserPoolClientCommand({
+        UserPoolId: this.config.aws.cognito.userPoolId,
+        ClientId: this.config.aws.cognito.clientId,
+      });
+
+      const response = await this.cognitoClient.send(command);
+      
+      if (!response.UserPoolClient?.ClientSecret) {
+        throw new Error('Client secret not found in User Pool Client');
+      }
+
+      return response.UserPoolClient.ClientSecret;
+    } catch (error) {
+      this.logger.error('Failed to retrieve Cognito client secret', error);
+      throw new Error('Failed to retrieve Cognito client secret');
+    }
   }
 
   /**

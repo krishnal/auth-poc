@@ -14,7 +14,7 @@ jest.mock('../services/auth-service', () => ({
   authService: {
     login: jest.fn(),
     signup: jest.fn(),
-    authenticateWithGoogle: jest.fn(),
+    logout: jest.fn(),
     refreshToken: jest.fn(),
     forgotPassword: jest.fn(),
     resetPassword: jest.fn(),
@@ -73,14 +73,22 @@ describe('AuthContext', () => {
     mockedAuthService.login.mockClear();
     mockedAuthService.getCurrentUser.mockClear();
     mockedTokenStorage.getTokens.mockReturnValue(null);
+    
+    // Mock the initialization API call to fail (no existing auth)
+    mockedAuthService.getCurrentUser.mockRejectedValue(new Error('Not authenticated'));
   });
 
-  it('should provide initial state', () => {
+  it('should provide initial state', async () => {
     render(
       <AuthProvider>
         <TestComponent />
       </AuthProvider>
     );
+
+    // Wait for initialization to complete
+    await waitFor(() => {
+      expect(screen.getByTestId('loading')).toHaveTextContent('Not Loading');
+    });
 
     expect(screen.getByTestId('user')).toHaveTextContent('No User');
     expect(screen.getByTestId('error')).toHaveTextContent('No Error');
@@ -105,13 +113,21 @@ describe('AuthContext', () => {
 
     // Mock the auth service methods
     mockedAuthService.login.mockResolvedValueOnce(mockTokens);
-    mockedAuthService.getCurrentUser.mockResolvedValueOnce(mockUser);
+    // First call during initialization fails, second call during login succeeds
+    mockedAuthService.getCurrentUser
+      .mockRejectedValueOnce(new Error('Not authenticated')) // initialization
+      .mockResolvedValueOnce(mockUser); // login
 
     render(
       <AuthProvider>
         <TestComponent />
       </AuthProvider>
     );
+
+    // Wait for initialization to complete
+    await waitFor(() => {
+      expect(screen.getByTestId('loading')).toHaveTextContent('Not Loading');
+    });
 
     const loginButton = screen.getByText('Login');
     await userEvent.click(loginButton);
@@ -126,7 +142,7 @@ describe('AuthContext', () => {
     mockedAuthService.login.mockRejectedValue('Invalid credentials');
 
     const TestLoginComponent = () => {
-      const { error, login } = useAuth();
+      const { error, login, isLoading } = useAuth();
       
       React.useEffect(() => {
         // Call login directly and catch the error
@@ -140,7 +156,12 @@ describe('AuthContext', () => {
         performLogin();
       }, [login]);
 
-      return <div data-testid="error">{error || 'No Error'}</div>;
+      return (
+        <div>
+          <div data-testid="error">{error || 'No Error'}</div>
+          <div data-testid="loading">{isLoading ? 'Loading' : 'Not Loading'}</div>
+        </div>
+      );
     };
 
     render(
@@ -153,5 +174,8 @@ describe('AuthContext', () => {
       // When error is not an Error instance, AuthContext shows 'Login failed'
       expect(screen.getByTestId('error')).toHaveTextContent('Login failed');
     });
+
+    // Should not be loading after error
+    expect(screen.getByTestId('loading')).toHaveTextContent('Not Loading');
   });
 });

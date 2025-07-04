@@ -1,31 +1,35 @@
 # AWS Cognito Authentication PoC
 
-A proof-of-concept authentication system demonstrating AWS Cognito integration with React frontend and Node.js backend. This PoC showcases dual authentication patterns: traditional email/password via Cognito and Google OAuth with custom token handling.
+A proof-of-concept authentication system demonstrating AWS Cognito integration with React frontend and Node.js backend. This PoC showcases dual authentication patterns: traditional email/password via Cognito and Google OAuth with federated identity using Cognito as the identity provider.
 
 ## 🏗️ Architecture Overview
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
-│   React SPA     │    │   API Gateway    │    │   Lambda Functions  │
-│   (Frontend)    │◄──►│   + Cognito      │◄──►│   (Authorizer +     │
-│                 │    │   Authorizer     │    │    Business Logic)  │
+│   React SPA     │    │   Node.js/Fastify│    │   AWS Cognito       │
+│   (Frontend)    │◄──►│   Backend Server │◄──►│   User Pool with    │
+│                 │    │                  │    │   Google Federation │
 └─────────────────┘    └──────────────────┘    └─────────────────────┘
          │                        │                         │
          │                        │                         │
          ▼                        ▼                         ▼
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
-│   AWS Cognito   │    │   Google OAuth   │    │   Node.js/Fastify   │
-│   User Pool     │    │   Provider       │    │   Backend Services  │
+│  Authentication │    │  Dual Auth Flow  │    │   Google OAuth      │
+│  State Mgmt     │    │  • Email/Password│    │   Identity Provider │
+│  • localStorage │    │  • HTTP Cookies  │    │   (Federated)       │
+│  • Cookies      │    │  • JWT Tokens    │    │                     │
 └─────────────────┘    └──────────────────┘    └─────────────────────┘
 ```
 
 ## 🚀 Features Demonstrated
 
-- **Dual Authentication Patterns**: Email/password (Cognito) and Google OAuth
-- **Custom Token Handling**: Google OAuth with custom token format for Lambda authorizer
-- **JWT Token Management**: Token verification and user context extraction
-- **Lambda Authorizer**: Unified authorization for both Cognito and Google tokens
+- **Dual Authentication Patterns**: Email/password (Cognito) and Google OAuth (federated)
+- **Cognito Federation**: Google OAuth through Cognito User Pool with Identity Provider
+- **Unified Token Management**: All tokens are Cognito JWT tokens for consistent handling
+- **HTTP-Only Cookie Security**: Secure token storage for OAuth flows
+- **Dual Auth Methods**: Authorization headers (tokens) and HTTP cookies
 - **React SPA**: Modern frontend with authentication flows
+- **Modular Backend Architecture**: Separated routes, middleware, and business logic
 - **Infrastructure as Code**: AWS CDK deployment automation
 - **Local Development**: Docker Compose setup for development
 - **Environment Agnostic Auth**: Works both locally and on AWS
@@ -33,10 +37,11 @@ A proof-of-concept authentication system demonstrating AWS Cognito integration w
 ## 🎯 PoC Objectives
 
 This proof-of-concept demonstrates:
-1. **Hybrid Authentication**: Combining AWS Cognito with third-party OAuth providers
-2. **Custom Token Strategy**: Handling non-Cognito tokens in AWS Lambda authorizers
+1. **Federated Authentication**: Using AWS Cognito with Google as a federated identity provider
+2. **Dual Authentication Methods**: Supporting both localStorage tokens and HTTP-only cookies
 3. **Unified User Experience**: Seamless auth flow regardless of provider
-4. **Development-to-AWS Pipeline**: Consistent behavior across environments
+4. **Proper Security Patterns**: Server-side OAuth flow with secure cookie handling
+5. **Development-to-AWS Pipeline**: Consistent behavior across environments
 
 ## 📁 Project Structure
 
@@ -48,9 +53,18 @@ auth-poc/
 │   ├── bin/
 │   │   └── auth-poc.ts
 │   └── package.json
-├── backend/                # Node.js Backend
+├── backend/                # Node.js Backend (Modular Architecture)
 │   ├── src/
-│   │   ├── handlers/       # Lambda functions
+│   │   ├── app.ts          # Shared app factory
+│   │   ├── server.ts       # Development server
+│   │   ├── lambda.ts       # Lambda handler
+│   │   ├── routes/         # API routes
+│   │   │   ├── auth.ts     # Authentication routes
+│   │   │   ├── health.ts   # Health check routes
+│   │   │   └── users.ts    # User routes
+│   │   ├── middleware/     # Middleware functions
+│   │   │   ├── auth.ts     # Auth middleware
+│   │   │   └── cors.ts     # CORS middleware
 │   │   ├── services/       # Business logic
 │   │   ├── types/          # TypeScript types
 │   │   └── utils/          # Utility functions
@@ -73,96 +87,81 @@ sequenceDiagram
     participant User as User
     participant Frontend as React SPA<br/>(Frontend)
     participant Browser as Browser
-    participant Google as Google OAuth
-    participant APIGW as API Gateway
-    participant Auth as Lambda Authorizer
-    participant Backend as Backend Lambda<br/>(Fastify)
+    participant Backend as Backend Server<br/>(Fastify)
     participant Cognito as AWS Cognito<br/>User Pool
+    participant Google as Google OAuth
 
     Note over User, Cognito: Email/Password Authentication Flow
     
     User->>Frontend: Enter email/password
-    Frontend->>APIGW: POST /auth/login<br/>{email, password}
-    APIGW->>Backend: Forward request
+    Frontend->>Backend: POST /auth/login<br/>{email, password}
     Backend->>Backend: AuthService.login()
     Backend->>Cognito: InitiateAuthCommand<br/>USER_PASSWORD_AUTH
     Cognito->>Backend: AccessToken, IdToken, RefreshToken
-    Backend->>APIGW: 200 OK + tokens
-    APIGW->>Frontend: Return tokens
+    Backend->>Frontend: 200 OK + tokens
     Frontend->>Frontend: Store tokens in localStorage
     
-    Note over Frontend, Cognito: Protected Resource Access
+    Note over User, Cognito: Google OAuth Authentication Flow (Cognito Federation)
     
-    Frontend->>APIGW: GET /api/user<br/>Authorization: Bearer {token}
-    APIGW->>Auth: Validate token
-    Auth->>Auth: AuthorizationService.authorizeRequest()
-    Auth->>Cognito: Verify JWT token
-    Cognito->>Auth: Token valid + user info
-    Auth->>Auth: Create AuthContext
-    Auth->>APIGW: Allow policy + context
-    APIGW->>Backend: Forward with auth context
-    Backend->>APIGW: User profile data
-    APIGW->>Frontend: Return user data
+    User->>Frontend: Click "Continue with Google"
+    Frontend->>Browser: Redirect to backend
+    Browser->>Backend: GET /auth/google
+    Backend->>Backend: AuthService.getGoogleAuthUrl()
+    Backend->>Browser: Redirect to Cognito OAuth2
+    Browser->>Cognito: OAuth2 authorize request<br/>with identity_provider=Google
+    Cognito->>Browser: Redirect to Google OAuth
+    Browser->>Google: Authorization request
+    Google->>User: Login & consent screen
+    User->>Google: Authorize application
+    Google->>Browser: Redirect with code
+    Browser->>Backend: GET /auth/callback?code=xyz
+    Backend->>Backend: AuthService.exchangeCodeForTokens()
+    Backend->>Cognito: POST /oauth2/token<br/>Exchange code for tokens
+    Cognito->>Backend: AccessToken, IdToken, RefreshToken<br/>(Cognito tokens with Google user data)
+    Backend->>Browser: Set HTTP-only cookies<br/>(access_token, id_token, refresh_token)
+    Browser->>Frontend: Redirect to /dashboard
+    Frontend->>Frontend: Detect authentication via protected endpoint
+    
+    Note over Frontend, Cognito: Protected Resource Access (Token-based Auth)
+    
+    Frontend->>Backend: GET /api/user<br/>Authorization: Bearer {token}
+    Backend->>Backend: Auth middleware checks header
+    Backend->>Backend: AuthorizationService.verifyToken()
+    Backend->>Cognito: Verify JWT token
+    Cognito->>Backend: Token valid + user info
+    Backend->>Backend: Create AuthContext
+    Backend->>Frontend: User profile data
     Frontend->>User: Display dashboard
-
-    Note over User, Cognito: Google OAuth Authentication Flow
     
-    User->>Frontend: Click "Sign in with Google"
-    Frontend->>Browser: Redirect to Google OAuth
-    Browser->>Google: Authorization request<br/>response_type=code
-    Google->>Browser: User consent & authorization
-    Browser->>Google: User authorizes app
-    Google->>Browser: Redirect to /auth/callback?code=xyz
-    Browser->>Frontend: Load AuthCallback component
-    Frontend->>Frontend: Extract code from URL
-    Frontend->>APIGW: POST /auth/google<br/>{code, redirectUri}
-    APIGW->>Backend: Forward request
-    Backend->>Backend: AuthService.authenticateWithGoogle()
-    Backend->>Google: Exchange code for tokens
-    Google->>Backend: ID token + access token
-    Backend->>Google: Verify ID token
-    Google->>Backend: Token payload validated
-    Backend->>Backend: handleGoogleFederatedAuth()
-    Backend->>Cognito: AdminGetUser (check if exists)
-    alt User doesn't exist
-        Cognito->>Backend: User not found
-        Backend->>Cognito: AdminCreateUser<br/>(federated user)
-        Cognito->>Backend: User created
-    else User exists
-        Cognito->>Backend: User details
-    end
-    Backend->>Backend: createFederatedTokens()<br/>Custom google.{base64} format
-    Backend->>APIGW: 200 OK + custom tokens
-    APIGW->>Frontend: Return custom tokens
-    Frontend->>Frontend: Store tokens in localStorage
+    Note over Frontend, Cognito: Protected Resource Access (Cookie-based Auth)
     
-    Note over Frontend, Cognito: Protected Resource Access (Google Token)
-    
-    Frontend->>APIGW: GET /api/user<br/>Authorization: Bearer google.{base64}
-    APIGW->>Auth: Validate custom token
-    Auth->>Auth: AuthorizationService.authorizeRequest()
-    Auth->>Auth: Try Cognito verification (fails)
-    Auth->>Auth: Try Google verification
-    Auth->>Auth: Detect custom token format
-    Auth->>Auth: verifyCustomGoogleToken()
-    Auth->>Auth: Decode base64 payload<br/>Verify expiry & audience
-    Auth->>Auth: Create AuthContext
-    Auth->>APIGW: Allow policy + context
-    APIGW->>Backend: Forward with auth context
-    Backend->>APIGW: User profile data
-    APIGW->>Frontend: Return user data
+    Frontend->>Backend: GET /api/user<br/>Cookies: access_token=...
+    Backend->>Backend: Auth middleware checks cookies
+    Backend->>Backend: Extract token from cookie
+    Backend->>Backend: AuthorizationService.verifyToken()
+    Backend->>Cognito: Verify JWT token
+    Cognito->>Backend: Token valid + user info
+    Backend->>Backend: Create AuthContext
+    Backend->>Frontend: User profile data
     Frontend->>User: Display dashboard
 
     Note over Frontend, Cognito: Token Refresh Flow
     
-    Frontend->>APIGW: POST /auth/refresh<br/>{refreshToken}
-    APIGW->>Backend: Forward request
+    Frontend->>Backend: POST /auth/refresh<br/>{refreshToken}
     Backend->>Backend: AuthService.refreshToken()
     Backend->>Cognito: InitiateAuthCommand<br/>REFRESH_TOKEN_AUTH
     Cognito->>Backend: New AccessToken + IdToken
-    Backend->>APIGW: 200 OK + new tokens
-    APIGW->>Frontend: Return new tokens
+    Backend->>Frontend: 200 OK + new tokens
     Frontend->>Frontend: Update stored tokens
+    
+    Note over Frontend, Backend: Logout Flow
+    
+    User->>Frontend: Click logout
+    Frontend->>Backend: GET /auth/logout
+    Backend->>Backend: Clear HTTP-only cookies
+    Backend->>Frontend: 200 OK
+    Frontend->>Frontend: Clear localStorage tokens
+    Frontend->>Frontend: Redirect to login
 ```
 
 ## 🛠️ Prerequisites
@@ -179,7 +178,7 @@ sequenceDiagram
 ### 1. Clone the Repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/yourusername/auth-poc.git
 cd auth-poc
 ```
 
@@ -204,6 +203,7 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 COGNITO_USER_POOL_ID=us-west-2_XXXXXXXXX
 COGNITO_CLIENT_ID=your-cognito-client-id
 COGNITO_CLIENT_SECRET=your-cognito-client-secret
+COGNITO_DOMAIN=auth-poc-dev-domain
 
 # Development Stage
 STAGE=dev
@@ -242,6 +242,7 @@ After deployment, update your `.env` file with the Cognito values from the CDK o
 - `COGNITO_USER_POOL_ID`
 - `COGNITO_CLIENT_ID` 
 - `COGNITO_CLIENT_SECRET`
+- `COGNITO_DOMAIN`
 
 Then restart your local development environment to use the deployed Cognito resources.
 
@@ -307,8 +308,9 @@ The CDK stack (`AuthPocStack`) creates:
 
 - **Cognito User Pool**: User management with email/password authentication
 - **Cognito User Pool Client**: App client with OAuth settings for Google integration
-- **Google Identity Provider**: Federated identity configuration
-- **Lambda Authorizer**: Custom authorizer for dual token validation
+- **Google Identity Provider**: Federated identity configuration for Google OAuth
+- **Cognito Domain**: OAuth2 endpoints for authorization and token exchange
+- **Lambda Authorizer**: Custom authorizer for Cognito token validation
 - **Lambda Backend**: Fastify API handlers for authentication endpoints
 - **API Gateway**: REST API with custom authorizer integration
 - **IAM Roles**: Lambda execution roles with minimal permissions
@@ -319,8 +321,11 @@ The CDK stack (`AuthPocStack`) creates:
 ## 🔐 Security Features Implemented
 
 ### Authentication
-- **JWT Token Validation**: Cognito and custom Google token verification
-- **Dual Token Support**: Handles both Cognito JWTs and custom Google tokens
+- **Unified JWT Token Validation**: All tokens are Cognito JWTs for consistent verification
+- **Dual Authentication Methods**: Support for both Authorization header and HTTP-only cookies
+- **Federated Identity**: Google OAuth through Cognito User Pool with proper federation
+- **Server-Side OAuth Flow**: Secure authorization code exchange on the backend
+- **HTTP-Only Cookie Security**: Secure token storage for OAuth flows preventing XSS attacks
 - **Token Expiry**: Automatic token expiration checking
 - **Input Validation**: TypeScript interfaces for request validation
 
@@ -400,15 +405,21 @@ GOOGLE_CLIENT_SECRET_PROD
 ### Public Endpoints
 - `POST /auth/login` - Email/password authentication
 - `POST /auth/signup` - User registration
-- `POST /auth/google` - Google OAuth authentication
+- `GET /auth/google` - Google OAuth authentication (redirects to Cognito)
+- `GET /auth/callback` - OAuth callback handler (exchanges code for tokens)
 - `POST /auth/refresh` - Token refresh
 - `POST /auth/password/forgot` - Password reset request
 - `POST /auth/password/reset` - Password reset confirmation
+- `GET /auth/logout` - Logout (clears HTTP-only cookies)
 
 ### Protected Endpoints (require authentication)
 - `GET /api/user` - Get user profile
 - `PUT /api/user` - Update user profile
 - `GET /api/data` - Get protected data
+- `GET /api/auth-test` - Test authentication context
+
+### Health Check
+- `GET /health` - Health check endpoint
 
 ## 🔧 Configuration
 
@@ -476,21 +487,37 @@ aws cognito-idp describe-user-pool --user-pool-id <pool-id>
 
 # Verify Google OAuth settings
 # Check redirect URIs in Google Cloud Console
+# For development: http://localhost:3001/auth/callback
+# For production: https://your-api-domain.com/auth/callback
+
+# Test authentication endpoints
+curl -X POST http://localhost:3001/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@example.com", "password": "password"}'
+
+# Test protected endpoints with cookies
+curl -b cookies.txt http://localhost:3001/api/user
+
+# Check backend logs for authentication issues
+docker-compose logs backend
 ```
 
 ## 🎓 Learning Outcomes
 
-This PoC demonstrates key concepts for building hybrid authentication systems:
+This PoC demonstrates key concepts for building federated authentication systems:
 
 ### Technical Learnings
-- **Custom Lambda Authorizer**: How to validate multiple token types in one authorizer
-- **Token Strategy**: Handling OAuth providers that don't integrate natively with Cognito
+- **Cognito Federation**: How to properly integrate Google OAuth with Cognito User Pool
+- **Server-Side OAuth Flow**: Implementing secure authorization code exchange on the backend
+- **Dual Authentication Methods**: Supporting both token-based and cookie-based authentication
+- **HTTP-Only Cookie Security**: Preventing XSS attacks with secure cookie handling
 - **Environment Consistency**: Making auth work both locally and in AWS
 - **CDK Infrastructure**: Deploying authentication infrastructure as code
 
 ### Architecture Patterns
-- **Unified User Experience**: Single auth flow for multiple providers
-- **Token Abstraction**: Consistent user context regardless of auth method
+- **Unified Token Management**: All authentication tokens are Cognito JWTs
+- **Modular Backend Design**: Separating routes, middleware, and business logic
+- **Secure Authentication Flow**: Server-side OAuth with proper token handling
 - **Development Workflow**: Local development with production parity
 
 ## 📚 Additional Resources

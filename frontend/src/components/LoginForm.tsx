@@ -15,20 +15,10 @@ export const LoginForm: React.FC = () => {
     clearError();
     
     try {
-      // await login({ email, password });
-      // sessionStorage.setItem(storageKey, 'used');
-      
-      login({email, password})
-        .then(() => {
-          navigate('/dashboard');
-        })
-        .catch((error) => {
-          console.error('Cognito login failed:', error);
-          navigate('/login?error=cognito_login_failed');
-        });
+      await login({ email, password });
+      navigate('/dashboard');
     } catch (error) {
       // Error is handled by the auth context
-      console.error('Error in handleSubmit:', error);
       navigate('/login?error=cognito_login_failed');
     }
   };

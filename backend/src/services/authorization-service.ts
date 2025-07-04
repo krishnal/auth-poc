@@ -1,5 +1,4 @@
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
-import { OAuth2Client } from 'google-auth-library';
 import { Logger } from '../utils/logger';
 import { getConfig } from '../config';
 
@@ -28,21 +27,14 @@ export interface DecodedToken {
   exp: number;
   iat: number;
   email_verified?: boolean;
+  // Additional fields for federated users
+  name?: string;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
 }
 
-export interface GoogleTokenPayload {
-  sub: string;
-  email: string;
-  email_verified: boolean;
-  name: string;
-  given_name: string;
-  family_name: string;
-  picture: string;
-  aud: string;
-  iss: string;
-  iat: number;
-  exp: number;
-}
+// GoogleTokenPayload interface removed - now using Cognito federation
 
 export class AuthorizationError extends Error {
   constructor(message: string, public statusCode: number = 401) {
@@ -53,7 +45,6 @@ export class AuthorizationError extends Error {
 
 export class AuthorizationService {
   private cognitoVerifier: CognitoJwtVerifier<any, any, any> | null = null;
-  private googleClient: OAuth2Client | null = null;
   private logger: Logger;
 
   constructor() {
@@ -68,11 +59,6 @@ export class AuthorizationService {
         tokenUse: 'access',
         clientId: config.aws.cognito.clientId,
       });
-    }
-
-    if (!this.googleClient) {
-      const config = getConfig();
-      this.googleClient = new OAuth2Client(config.google.clientId);
     }
   }
 
@@ -110,100 +96,24 @@ export class AuthorizationService {
     }
   }
 
-  async verifyGoogleToken(token: string): Promise<GoogleTokenPayload> {
+  // Google token verification removed - now using Cognito federation
+  // All Google-authenticated users will have valid Cognito tokens
+
+  async verifyToken(token: string): Promise<{ userInfo: DecodedToken; tokenType: 'cognito' }> {
     try {
-      // Check if this is our custom federated token format
-      if (token.startsWith('google.')) {
-        return this.verifyCustomGoogleToken(token);
-      }
-
-      // Otherwise, verify as standard Google ID token
-      this.initializeVerifiers();
-      
-      if (!this.googleClient) {
-        throw new AuthorizationError('Google client not initialized');
-      }
-
-      const config = getConfig();
-      const ticket = await this.googleClient.verifyIdToken({
-        idToken: token,
-        audience: config.google.clientId,
-      });
-
-      const payload = ticket.getPayload();
-      if (!payload) {
-        throw new AuthorizationError('Invalid Google token payload');
-      }
-
-      this.logger.info('Google token verified successfully', { 
-        sub: payload.sub, 
-        email: payload.email 
-      });
-      
-      return payload as GoogleTokenPayload;
+      // All tokens (including federated Google users) are now Cognito tokens
+      const userInfo = await this.verifyCognitoToken(token);
+      return { userInfo, tokenType: 'cognito' };
     } catch (error) {
-      this.logger.error('Google token verification failed:', error);
-      throw new AuthorizationError('Invalid Google token');
-    }
-  }
-
-  verifyCustomGoogleToken(token: string): GoogleTokenPayload {
-    try {
-      // Extract the base64 payload from our custom token
-      const base64Payload = token.substring('google.'.length);
-      const payloadString = Buffer.from(base64Payload, 'base64').toString();
-      const payload = JSON.parse(payloadString);
-
-      // Verify token hasn't expired
-      const now = Math.floor(Date.now() / 1000);
-      if (payload.exp && payload.exp < now) {
-        throw new AuthorizationError('Token has expired');
-      }
-
-      // Verify audience
-      const config = getConfig();
-      if (payload.aud !== config.google.clientId) {
-        throw new AuthorizationError('Invalid token audience');
-      }
-
-      this.logger.info('Custom Google token verified successfully', { 
-        sub: payload.sub, 
-        email: payload.email 
+      this.logger.error('Token verification failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
-      
-      return payload as GoogleTokenPayload;
-    } catch (error) {
-      this.logger.error('Custom Google token verification failed:', error);
-      throw new AuthorizationError('Invalid custom Google token');
+      throw new AuthorizationError('Invalid token');
     }
   }
 
-  async verifyToken(token: string): Promise<{ userInfo: DecodedToken | GoogleTokenPayload; tokenType: 'cognito' | 'google' }> {
-    let userInfo: DecodedToken | GoogleTokenPayload;
-    let tokenType: 'cognito' | 'google';
-
-    try {
-      // Try Cognito first
-      userInfo = await this.verifyCognitoToken(token);
-      tokenType = 'cognito';
-    } catch (cognitoError) {
-      try {
-        // If Cognito fails, try Google
-        userInfo = await this.verifyGoogleToken(token);
-        tokenType = 'google';
-      } catch (googleError) {
-        this.logger.error('Both token verifications failed', {
-          cognitoError: cognitoError instanceof Error ? cognitoError.message : 'Unknown error',
-          googleError: googleError instanceof Error ? googleError.message : 'Unknown error',
-        });
-        throw new AuthorizationError('Invalid token');
-      }
-    }
-
-    return { userInfo, tokenType };
-  }
-
-  createAuthContext(userInfo: DecodedToken | GoogleTokenPayload, tokenType: 'cognito' | 'google'): AuthContext {
+  createAuthContext(userInfo: DecodedToken, tokenType: 'cognito'): AuthContext {
+    // All tokens are now Cognito tokens, including federated Google users
     const baseContext: AuthContext = {
       userId: userInfo.sub,
       email: userInfo.email,
@@ -211,23 +121,17 @@ export class AuthorizationService {
       emailVerified: userInfo.email_verified || false,
     };
 
-    if (tokenType === 'cognito') {
-      const cognitoUser = userInfo as DecodedToken;
-      return {
-        ...baseContext,
-        username: cognitoUser['cognito:username'] || cognitoUser.sub,
-        tokenUse: cognitoUser.token_use || '',
-      };
-    } else {
-      const googleUser = userInfo as GoogleTokenPayload;
-      return {
-        ...baseContext,
-        name: googleUser.name || '',
-        givenName: googleUser.given_name || '',
-        familyName: googleUser.family_name || '',
-        picture: googleUser.picture || '',
-      };
-    }
+    // For Cognito tokens (including federated users)
+    return {
+      ...baseContext,
+      username: userInfo['cognito:username'] || userInfo.sub,
+      tokenUse: userInfo.token_use || '',
+      // For federated users, additional Google info may be in custom attributes
+      name: userInfo.name || '',
+      givenName: userInfo.given_name || '',
+      familyName: userInfo.family_name || '',
+      picture: userInfo.picture || '',
+    };
   }
 
   createAuthContextFromHeaders(headers: Record<string, string>): AuthContext | null {

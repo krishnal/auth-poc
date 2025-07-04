@@ -4,22 +4,22 @@ import { useAuth } from '../contexts/AuthContext';
 export const GoogleLoginButton: React.FC = () => {
   const { isLoading } = useAuth();
 
-  const handleGoogleLogin = () => {
-    const googleClientId = process.env.REACT_APP_GOOGLE_CLIENT_ID;
-    const redirectUri = `${window.location.origin}/auth/callback`;
-    const scope = 'openid email profile';
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-      `client_id=${googleClientId}&` +
-      `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-      `response_type=code&` +
-      `scope=${encodeURIComponent(scope)}&` +
-      `access_type=offline&` +
-      `prompt=consent`;
+  const authDomain = process.env.REACT_APP_AUTH_DOMAIN;
 
+  const authorizeParams = new URLSearchParams()
+
+  const handleGoogleLogin = () => {
+    authorizeParams.append('response_type', 'code')
+    authorizeParams.append('client_id', process.env.REACT_APP_COGNITO_CLIENT_ID as string)
+    authorizeParams.append('redirect_uri', `http://localhost:3001/auth/callback`)
+    authorizeParams.append('identity_provider', 'Google')
+    authorizeParams.append('scope', 'profile email openid')
+    const googleAuthUrl = `${authDomain}/oauth2/authorize?${authorizeParams.toString()}`;
     window.location.href = googleAuthUrl;
   };
 
   return (
+    <>
     <button
       type="button"
       onClick={handleGoogleLogin}
@@ -46,5 +46,6 @@ export const GoogleLoginButton: React.FC = () => {
       </svg>
       Continue with Google
     </button>
+    </>
   );
 };
