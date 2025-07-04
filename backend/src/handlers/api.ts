@@ -74,7 +74,7 @@ const createFastifyApp = (): FastifyInstance => {
       if (awsContext.hasAuthorizer && awsContext.authorizer) {
         const authorizer = awsContext.authorizer;
         authContext = {
-          userId: authorizer.userId,
+          userId: authorizer.userId || authorizer.username,
           email: authorizer.email,
           tokenType: authorizer.tokenType as 'cognito' | 'google',
           emailVerified: authorizer.emailVerified === 'true',
