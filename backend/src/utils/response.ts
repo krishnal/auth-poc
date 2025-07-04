@@ -10,11 +10,12 @@ export interface ApiResponse<T = any> {
     data: T,
     headers: Record<string, string> = {}
   ): ApiResponse<T> => {
+    const config = require('../config').getConfig();
     return {
       statusCode,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': process.env.CORS_ORIGIN || '*',
+        'Access-Control-Allow-Origin': config.cors.origin,
         'Access-Control-Allow-Credentials': 'true',
         'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
         'Access-Control-Allow-Methods': 'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT',

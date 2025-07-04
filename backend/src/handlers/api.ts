@@ -1,22 +1,21 @@
 // backend/src/handlers/api.ts
-import * as dotenv from 'dotenv';
-import * as path from 'path';
-
-// Load environment variables for local development
-if (process.env.NODE_ENV !== 'production') {
-  dotenv.config({ path: path.resolve(__dirname, '../../.env') });
-}
-
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda';
 import { fastify, FastifyInstance } from 'fastify';
 import awsLambdaFastify from '@fastify/aws-lambda';
 import cors from '@fastify/cors';
 import { AuthService } from '../services/auth-service';
 import { UserService } from '../services/user-service';
+import { AuthorizationService, AuthContext } from '../services/authorization-service';
+import { getConfig } from '../config';
+import { 
+  getEnvironmentContext, 
+  extractLambdaEvent, 
+  extractAWSEventContext 
+} from '../utils/environment';
+import { handleError, BaseError, extractErrorMessage } from '../utils/errors';
+import { serviceFactory } from '../services/base-service';
 import { Logger } from '../utils/logger';
 import { createErrorResponse, createSuccessResponse } from '../utils/response';
-import { getErrorMessage } from '../utils/error-handler';
-import { AuthorizationService, AuthContext } from '../services/authorization-service';
 import {
   LoginRequest,
   SignupRequest,
@@ -31,60 +30,49 @@ let currentLambdaEvent: any = null;
 
 // Create Fastify instance
 const createFastifyApp = (): FastifyInstance => {
+  const config = getConfig();
+  
   const app = fastify({
     logger: false, // We'll use our custom logger
   });
 
-  // Register CORS
+  // Register CORS with centralized configuration
   app.register(cors, {
-    origin: [
-      'http://localhost:3000',
-      /^https:\/\/.*\.thinfra\.net$/,
-    ],
+    origin: config.cors.allowedDomains,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
 
-  // Initialize services
+  // Initialize services with context
   const authService = new AuthService();
   const userService = new UserService();
   const authorizationService = new AuthorizationService();
 
   // Middleware to extract auth context from API Gateway or handle local authorization
   app.addHook('preHandler', async (request: any) => {
-    console.log('=== PREHANDLER STARTED ===');
-    console.log('Request URL:', request.url);
-    console.log('Request method:', request.method);
-    console.log('Request headers:', request.headers);
+    const logger = new Logger({ service: 'PreHandler' });
     
-    const headers = request.headers || {};
-    // Use the global currentLambdaEvent if available
-    const event = currentLambdaEvent || request.awsLambda?.event || request.event || (request as any).lambdaEvent;
+    // Extract Lambda event using the environment utility
+    const event = extractLambdaEvent(request, currentLambdaEvent);
+    const environmentContext = getEnvironmentContext(event);
+    const awsContext = extractAWSEventContext(event);
     
-    console.log('PreHandler debug', {
-      hasGlobalEvent: !!currentLambdaEvent,
-      hasAwsLambda: !!request.awsLambda,
-      hasEvent: !!event,
-      hasRequestEvent: !!(request as any).event,
-      hasLambdaEvent: !!(request as any).lambdaEvent,
-      hasRequestContext: !!event?.requestContext,
-      hasAuthorizer: !!event?.requestContext?.authorizer,
-      authorizerKeys: event?.requestContext?.authorizer ? Object.keys(event.requestContext.authorizer) : [],
-      authorizer: event?.requestContext?.authorizer,
+    logger.info('Processing request', {
+      url: request.url,
+      method: request.method,
+      isAWS: environmentContext.isAWS,
+      hasAuthorizer: awsContext?.hasAuthorizer || false,
     });
-
-    // Check if we're running on AWS (has event context) or locally
-    const isAWSEnvironment = !!event?.requestContext;
     
-    if (isAWSEnvironment) {
+    if (environmentContext.isAWS && awsContext) {
       // AWS Environment: Extract auth context from Lambda authorizer
-      console.log('Running in AWS environment - extracting auth context from authorizer');
+      logger.info('Processing AWS environment request');
       
       let authContext: AuthContext | null = null;
       
       // Try to get from requestContext.authorizer first
-      if (event?.requestContext?.authorizer) {
-        const authorizer = event.requestContext.authorizer;
+      if (awsContext.hasAuthorizer && awsContext.authorizer) {
+        const authorizer = awsContext.authorizer;
         authContext = {
           userId: authorizer.userId,
           email: authorizer.email,
@@ -105,29 +93,28 @@ const createFastifyApp = (): FastifyInstance => {
       
       // Fallback to headers if not in authorizer context
       if (!authContext) {
-        authContext = authorizationService.createAuthContextFromHeaders(headers);
+        authContext = authorizationService.createAuthContextFromHeaders(request.headers || {});
       }
       
       request.authContext = authContext;
     } else {
       // Local Environment: Handle authorization directly
-      console.log('Running in local environment - handling authorization directly');
+      logger.info('Processing local environment request');
       
       const authHeader = request.headers?.authorization || request.headers?.Authorization;
-      console.log('Authorization header in preHandler:', authHeader ? 'PRESENT' : 'NOT PRESENT');
       
       if (authHeader) {
         try {
           const authContext = await authorizationService.authorizeRequest(authHeader);
-          authContext.email = 'krishnal.jadav@gmail.com';
           request.authContext = authContext;
-          console.log('Local authorization successful', {
+          
+          logger.info('Local authorization successful', {
             userId: authContext.userId,
             email: authContext.email,
             tokenType: authContext.tokenType,
           });
         } catch (error) {
-          console.log('Local authorization failed:', error);
+          logger.error('Local authorization failed', error);
           request.authContext = null;
         }
       } else {
@@ -135,12 +122,11 @@ const createFastifyApp = (): FastifyInstance => {
       }
     }
 
-    console.log('PreHandler completed', {
+    logger.info('PreHandler completed', {
       hasAuthContext: !!request.authContext,
-      authContext: request.authContext,
-      isAWSEnvironment,
+      environment: environmentContext.isAWS ? 'aws' : 'local',
+      requestId: environmentContext.requestId,
     });
-    console.log('=== PREHANDLER FINISHED ===');
   });
 
   // Health check
@@ -198,7 +184,7 @@ const createFastifyApp = (): FastifyInstance => {
       } catch (error) {
         logger.error('Signup failed', error);
         reply.code(400);
-        return createErrorResponse(400, getErrorMessage(error, 'Signup failed'));
+        return createErrorResponse(400, extractErrorMessage(error, 'Signup failed'));
       }
     });
 
@@ -216,7 +202,7 @@ const createFastifyApp = (): FastifyInstance => {
       } catch (error) {
         logger.error('Google auth failed', error);
         reply.code(400);
-        return createErrorResponse(400, getErrorMessage(error, 'Google authentication failed'));
+        return createErrorResponse(400, extractErrorMessage(error, 'Google authentication failed'));
       }
     });
 
@@ -252,7 +238,7 @@ const createFastifyApp = (): FastifyInstance => {
       } catch (error) {
         logger.error('Forgot password failed', error);
         reply.code(400);
-        return createErrorResponse(400, getErrorMessage(error, 'Failed to send reset code'));
+        return createErrorResponse(400, extractErrorMessage(error, 'Failed to send reset code'));
       }
     });
 
@@ -270,7 +256,7 @@ const createFastifyApp = (): FastifyInstance => {
       } catch (error) {
         logger.error('Password reset failed', error);
         reply.code(400);
-        return createErrorResponse(400, getErrorMessage(error, 'Password reset failed'));
+        return createErrorResponse(400, extractErrorMessage(error, 'Password reset failed'));
       }
     });
   });
@@ -404,19 +390,17 @@ const app = createFastifyApp();
 
 // Custom Lambda handler that properly exposes event context
 export const handler = async (event: any, context: any) => {
-  console.log('=== LAMBDA HANDLER STARTED ===');
-  console.log('Full Lambda event:', JSON.stringify(event, null, 2));
+  const environmentContext = getEnvironmentContext(event);
+  const logger = new Logger({ 
+    service: 'LambdaHandler',
+    requestId: environmentContext.requestId 
+  });
   
-  console.log('Lambda handler detailed debug', {
+  logger.info('Lambda handler started', {
     method: event.httpMethod,
     path: event.path,
-    resource: event.resource,
-    headers: event.headers,
-    hasRequestContext: !!event.requestContext,
-    requestContext: event.requestContext,
-    hasAuthorizer: !!event.requestContext?.authorizer,
-    authorizerKeys: event.requestContext?.authorizer ? Object.keys(event.requestContext.authorizer) : [],
-    authorizer: event.requestContext?.authorizer,
+    isAWS: environmentContext.isAWS,
+    stage: environmentContext.stage,
   });
 
   // Store the event globally so preHandler can access it
@@ -427,12 +411,30 @@ export const handler = async (event: any, context: any) => {
     const wrappedHandler = awsLambdaFastify(app);
     const result = await wrappedHandler(event, context);
 
-    console.log('Lambda handler response', {
+    logger.info('Lambda handler completed successfully', {
       statusCode: result.statusCode,
       hasBody: !!result.body,
     });
 
     return result;
+  } catch (error) {
+    logger.error('Lambda handler failed', error);
+    
+    // Use centralized error handling
+    const errorResponse = handleError(error, {
+      ...environmentContext,
+      action: 'lambda-handler',
+    });
+
+    return {
+      statusCode: errorResponse.statusCode,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': getConfig().cors.origin,
+        'Access-Control-Allow-Credentials': 'true',
+      },
+      body: JSON.stringify(errorResponse.body),
+    };
   } finally {
     // Clear the global event
     currentLambdaEvent = null;

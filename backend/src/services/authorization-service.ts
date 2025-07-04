@@ -61,15 +61,17 @@ export class AuthorizationService {
 
   private initializeVerifiers() {
     if (!this.cognitoVerifier) {
+      const config = require('../config').getConfig();
       this.cognitoVerifier = CognitoJwtVerifier.create({
-        userPoolId: process.env.COGNITO_USER_POOL_ID!,
+        userPoolId: config.aws.cognito.userPoolId,
         tokenUse: 'access',
-        clientId: process.env.COGNITO_CLIENT_ID!,
+        clientId: config.aws.cognito.clientId,
       });
     }
 
     if (!this.googleClient) {
-      this.googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID!);
+      const config = require('../config').getConfig();
+      this.googleClient = new OAuth2Client(config.google.clientId);
     }
   }
 
@@ -121,9 +123,10 @@ export class AuthorizationService {
         throw new AuthorizationError('Google client not initialized');
       }
 
+      const config = require('../config').getConfig();
       const ticket = await this.googleClient.verifyIdToken({
         idToken: token,
-        audience: process.env.GOOGLE_CLIENT_ID!,
+        audience: config.google.clientId,
       });
 
       const payload = ticket.getPayload();
@@ -157,7 +160,8 @@ export class AuthorizationService {
       }
 
       // Verify audience
-      if (payload.aud !== process.env.GOOGLE_CLIENT_ID) {
+      const config = require('../config').getConfig();
+      if (payload.aud !== config.google.clientId) {
         throw new AuthorizationError('Invalid token audience');
       }
 
