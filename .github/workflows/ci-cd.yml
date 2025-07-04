@@ -22,7 +22,30 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: ${{ env.NODE_VERSION }}
-        cache: 'npm'
+
+    - name: Cache backend dependencies
+      uses: actions/cache@v3
+      with:
+        path: backend/node_modules
+        key: ${{ runner.os }}-backend-${{ hashFiles('backend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-backend-
+
+    - name: Cache frontend dependencies
+      uses: actions/cache@v3
+      with:
+        path: frontend/node_modules
+        key: ${{ runner.os }}-frontend-${{ hashFiles('frontend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-frontend-
+
+    - name: Cache infrastructure dependencies
+      uses: actions/cache@v3
+      with:
+        path: infrastructure/node_modules
+        key: ${{ runner.os }}-infrastructure-${{ hashFiles('infrastructure/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-infrastructure-
 
     - name: Install backend dependencies
       run: cd backend && npm ci
