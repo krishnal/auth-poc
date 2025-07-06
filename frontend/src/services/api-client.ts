@@ -29,7 +29,7 @@ class ApiClient {
       ...(options.headers as Record<string, string>),
     };
 
-    // Add Authorization header if we have tokens (token-based auth)
+    // Add Authorization header if we have tokens
     if (tokens?.accessToken) {
       headers.Authorization = `Bearer ${tokens.accessToken}`;
     }
@@ -37,7 +37,6 @@ class ApiClient {
     const config: RequestInit = {
       ...options,
       headers,
-      credentials: 'include', // Include cookies for cookie-based auth
     };
 
     try {

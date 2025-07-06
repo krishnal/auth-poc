@@ -100,35 +100,16 @@ export function registerAuthRoutes(app: FastifyInstance): void {
         
         logger.info('OAuth token exchange successful');
         
-        // Set tokens in secure HTTP-only cookies
-        reply.setCookie('access_token', tokens.accessToken, {
-          httpOnly: true,
-          secure: request.protocol === 'https',
-          sameSite: 'lax',
-          maxAge: tokens.expiresIn,
-          path: '/',
+        // Redirect to frontend with JWT tokens as URL parameters
+        const tokenParams = new URLSearchParams({
+          access_token: tokens.accessToken,
+          id_token: tokens.idToken,
+          refresh_token: tokens.refreshToken,
+          expires_in: tokens.expiresIn.toString(),
+          token_type: tokens.tokenType,
         });
         
-        reply.setCookie('id_token', tokens.idToken, {
-          httpOnly: true,
-          secure: request.protocol === 'https',
-          sameSite: 'lax',
-          maxAge: tokens.expiresIn,
-          path: '/',
-        });
-        
-        if (tokens.refreshToken) {
-          reply.setCookie('refresh_token', tokens.refreshToken, {
-            httpOnly: true,
-            secure: request.protocol === 'https',
-            sameSite: 'lax',
-            maxAge: 30 * 24 * 60 * 60, // 30 days
-            path: '/',
-          });
-        }
-        
-        // Redirect to dashboard
-        return reply.redirect('http://localhost:3000/dashboard');
+        return reply.redirect(`http://localhost:3000/auth/callback?${tokenParams.toString()}`);
       } catch (error) {
         logger.error('OAuth callback failed', error);
         return reply.redirect(`http://localhost:3000/login?error=${encodeURIComponent('oauth_callback_failed')}`);
@@ -189,17 +170,15 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       }
     });
 
-    // Logout endpoint to clear cookies
+    // Logout endpoint (JWT-only, no server-side session to clear)
     fastify.get('/auth/logout', async (request, reply) => {
       const logger = new Logger({ action: 'logout' });
       
       try {
         logger.info('Logout attempt started');
         
-        // Clear all authentication cookies
-        reply.clearCookie('access_token', { path: '/' });
-        reply.clearCookie('id_token', { path: '/' });
-        reply.clearCookie('refresh_token', { path: '/' });
+        // With JWT-only auth, logout is handled client-side by removing tokens
+        // This endpoint just acknowledges the logout request
         
         logger.info('Logout successful');
         return createSuccessResponse({ message: 'Logout successful' });

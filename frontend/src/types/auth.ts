@@ -28,7 +28,3 @@ export interface User {
     familyName?: string;
   }
   
-  export interface GoogleAuthData {
-    code: string;
-    redirectUri: string;
-  }

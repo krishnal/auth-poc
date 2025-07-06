@@ -8,7 +8,6 @@ import { Logger } from '../utils/logger';
 const authorizationService = new AuthorizationService();
 
 export const verifyCognitoToken = authorizationService.verifyCognitoToken.bind(authorizationService);
-// Google token verification methods removed - now using Cognito federation
 
 const generatePolicy = (
   principalId: string,
@@ -58,7 +57,7 @@ export const handler = async (
     });
 
     // Convert AuthContext to string values for API Gateway
-    // All tokens are now Cognito tokens (including federated Google users)
+    // All tokens are Cognito tokens (including federated users)
     const stringAuthContext = {
       userId: String(authContext.userId),
       email: String(authContext.email),

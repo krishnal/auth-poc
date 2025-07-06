@@ -1,5 +1,4 @@
 import { FastifyInstance } from 'fastify';
-import cookie from '@fastify/cookie';
 import { AuthorizationService, AuthContext } from '../services/authorization-service';
 import { 
   getEnvironmentContext, 
@@ -29,9 +28,6 @@ export function clearLambdaEvent(): void {
  * Registers authentication middleware with the Fastify app
  */
 export function registerAuth(app: FastifyInstance, environment?: string): void {
-  // Register cookie plugin
-  app.register(cookie);
-
   // Initialize authorization service
   const authorizationService = new AuthorizationService();
 
@@ -64,18 +60,15 @@ export function registerAuth(app: FastifyInstance, environment?: string): void {
         authContext = {
           userId: authorizer.userId || authorizer.username,
           email: authorizer.email,
-          tokenType: authorizer.tokenType as 'cognito' | 'google',
+          tokenType: 'cognito', // All tokens are now Cognito tokens
           emailVerified: authorizer.emailVerified === 'true',
-          ...(authorizer.tokenType === 'cognito' && {
-            username: authorizer.username,
-            tokenUse: authorizer.tokenUse,
-          }),
-          ...(authorizer.tokenType === 'google' && {
-            name: authorizer.name,
-            givenName: authorizer.givenName,
-            familyName: authorizer.familyName,
-            picture: authorizer.picture,
-          }),
+          username: authorizer.username,
+          tokenUse: authorizer.tokenUse,
+          // Additional attributes for federated users
+          name: authorizer.name || '',
+          givenName: authorizer.givenName || '',
+          familyName: authorizer.familyName || '',
+          picture: authorizer.picture || '',
         };
       }
       
@@ -92,36 +85,18 @@ export function registerAuth(app: FastifyInstance, environment?: string): void {
       const authHeader = request.headers?.authorization || request.headers?.Authorization;
       let authContext: AuthContext | null = null;
       
-      // First, try Authorization header (token-based auth)
+      // Handle JWT Bearer token authorization
       if (authHeader) {
         try {
           authContext = await authorizationService.authorizeRequest(authHeader);
           
-          logger.info('Local authorization successful via header', {
+          logger.info('Local authorization successful', {
             userId: authContext.userId,
             email: authContext.email,
             tokenType: authContext.tokenType,
           });
         } catch (error) {
-          logger.error('Local authorization failed via header', error);
-          authContext = null;
-        }
-      }
-      
-      // If no header auth, try cookies (cookie-based auth from Google OAuth)
-      if (!authContext && request.cookies?.access_token) {
-        try {
-          // Create Authorization header from cookie
-          const cookieAuthHeader = `Bearer ${request.cookies.access_token}`;
-          authContext = await authorizationService.authorizeRequest(cookieAuthHeader);
-          
-          logger.info('Local authorization successful via cookie', {
-            userId: authContext.userId,
-            email: authContext.email,
-            tokenType: authContext.tokenType,
-          });
-        } catch (error) {
-          logger.error('Local authorization failed via cookie', error);
+          logger.error('Local authorization failed', error);
           authContext = null;
         }
       }

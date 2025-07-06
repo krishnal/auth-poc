@@ -9,19 +9,18 @@ interface AuthState {
   isLoading: boolean;
   isAuthenticated: boolean;
   error: string | null;
-  authMethod: 'token' | 'cookie' | null; // Track authentication method
 }
 
 type AuthAction =
   | { type: 'LOGIN_START' }
-  | { type: 'LOGIN_SUCCESS'; payload: { tokens?: AuthTokens; user: User; authMethod: 'token' | 'cookie' } }
+  | { type: 'LOGIN_SUCCESS'; payload: { tokens: AuthTokens; user: User } }
   | { type: 'LOGIN_FAILURE'; payload: string }
   | { type: 'LOGOUT' }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'CLEAR_ERROR' }
   | { type: 'TOKEN_REFRESHED'; payload: AuthTokens }
   | { type: 'USER_UPDATED'; payload: User }
-  | { type: 'AUTH_CHECKED'; payload: { isAuthenticated: boolean; user?: User; authMethod?: 'token' | 'cookie' } };
+  | { type: 'AUTH_CHECKED'; payload: { isAuthenticated: boolean; user?: User } };
 
 const initialState: AuthState = {
   user: null,
@@ -29,7 +28,6 @@ const initialState: AuthState = {
   isLoading: true,
   isAuthenticated: false,
   error: null,
-  authMethod: null,
 };
 
 const authReducer = (state: AuthState, action: AuthAction): AuthState => {
@@ -40,11 +38,10 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
       return {
         ...state,
         user: action.payload.user,
-        tokens: action.payload.tokens || null,
+        tokens: action.payload.tokens,
         isLoading: false,
         isAuthenticated: true,
         error: null,
-        authMethod: action.payload.authMethod,
       };
     case 'LOGIN_FAILURE':
       return {
@@ -54,7 +51,6 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
         isLoading: false,
         isAuthenticated: false,
         error: action.payload,
-        authMethod: null,
       };
     case 'LOGOUT':
       return {
@@ -63,7 +59,6 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
         tokens: null,
         isAuthenticated: false,
         error: null,
-        authMethod: null,
       };
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
@@ -78,7 +73,6 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
         ...state,
         isAuthenticated: action.payload.isAuthenticated,
         user: action.payload.user || null,
-        authMethod: action.payload.authMethod || null,
         isLoading: false,
       };
     default:
@@ -116,7 +110,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       tokenStorage.setTokens(tokens);
       const user = await authService.getCurrentUser();
       
-      dispatch({ type: 'LOGIN_SUCCESS', payload: { tokens, user, authMethod: 'token' } });
+      dispatch({ type: 'LOGIN_SUCCESS', payload: { tokens, user } });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Login failed';
       dispatch({ type: 'LOGIN_FAILURE', payload: message });
@@ -139,7 +133,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(async () => {
     try {
-      // Call backend logout endpoint to clear HTTP-only cookies
+      // Call backend logout endpoint
       await authService.logout();
       
       // Clear local tokens and update state
@@ -189,19 +183,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkAuthStatus = useCallback(async () => {
     try {
       // Try to get user profile from a protected endpoint
-      // This works for both token-based and cookie-based auth
       const user = await authService.getCurrentUser();
-      
-      // Check if we have tokens in localStorage (token-based auth)
-      const tokens = tokenStorage.getTokens();
-      const authMethod = tokens ? 'token' : 'cookie';
       
       dispatch({ 
         type: 'AUTH_CHECKED', 
         payload: { 
           isAuthenticated: true, 
-          user, 
-          authMethod 
+          user 
         } 
       });
     } catch (error) {
@@ -218,30 +206,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Initialize auth state on app load
   useEffect(() => {
     const initAuth = async () => {
-      // Check for existing tokens first (email/password auth)
+      // Check for existing tokens
       const tokens = tokenStorage.getTokens();
       if (tokens) {
         try {
           const user = await authService.getCurrentUser();
-          dispatch({ type: 'LOGIN_SUCCESS', payload: { tokens, user, authMethod: 'token' } });
+          dispatch({ type: 'LOGIN_SUCCESS', payload: { tokens, user } });
         } catch (error) {
-          console.error('Failed to restore token-based auth session:', error);
+          console.error('Failed to restore auth session:', error);
           tokenStorage.clearTokens();
-          // Still check for cookie-based auth
-          await checkAuthStatus();
+          dispatch({ type: 'LOGOUT' });
         }
       } else {
-        // No tokens, check for cookie-based auth (Google OAuth)
-        await checkAuthStatus();
+        // No tokens found, user is not authenticated
+        dispatch({ type: 'LOGOUT' });
       }
     };
 
     initAuth();
   }, [checkAuthStatus]);
 
-  // Auto token refresh (only for token-based auth)
+  // Auto token refresh
   useEffect(() => {
-    if (!state.tokens || !state.isAuthenticated || state.authMethod !== 'token') return;
+    if (!state.tokens || !state.isAuthenticated) return;
 
     const tokenRefreshInterval = setInterval(() => {
       const tokens = tokenStorage.getTokens();
@@ -255,7 +242,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 60000); // Check every minute
 
     return () => clearInterval(tokenRefreshInterval);
-  }, [state.tokens, state.isAuthenticated, state.authMethod, refreshTokens]);
+  }, [state.tokens, state.isAuthenticated, refreshTokens]);
 
   const value: AuthContextType = {
     ...state,

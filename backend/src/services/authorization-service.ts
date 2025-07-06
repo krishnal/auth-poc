@@ -5,7 +5,7 @@ import { getConfig } from '../config';
 export interface AuthContext {
   userId: string;
   email: string;
-  tokenType: 'cognito' | 'google';
+  tokenType: 'cognito';
   emailVerified: boolean;
   username?: string;
   tokenUse?: string;
@@ -96,12 +96,11 @@ export class AuthorizationService {
     }
   }
 
-  // Google token verification removed - now using Cognito federation
-  // All Google-authenticated users will have valid Cognito tokens
+  // All authentication now uses Cognito tokens (including federated users)
 
   async verifyToken(token: string): Promise<{ userInfo: DecodedToken; tokenType: 'cognito' }> {
     try {
-      // All tokens (including federated Google users) are now Cognito tokens
+      // All tokens are Cognito tokens (including federated users)
       const userInfo = await this.verifyCognitoToken(token);
       return { userInfo, tokenType: 'cognito' };
     } catch (error) {
@@ -113,7 +112,7 @@ export class AuthorizationService {
   }
 
   createAuthContext(userInfo: DecodedToken, tokenType: 'cognito'): AuthContext {
-    // All tokens are now Cognito tokens, including federated Google users
+    // All tokens are Cognito tokens, including federated users
     const baseContext: AuthContext = {
       userId: userInfo.sub,
       email: userInfo.email,
@@ -126,7 +125,7 @@ export class AuthorizationService {
       ...baseContext,
       username: userInfo['cognito:username'] || userInfo.sub,
       tokenUse: userInfo.token_use || '',
-      // For federated users, additional Google info may be in custom attributes
+      // For federated users, additional provider info may be in custom attributes
       name: userInfo.name || '',
       givenName: userInfo.given_name || '',
       familyName: userInfo.family_name || '',
@@ -137,35 +136,26 @@ export class AuthorizationService {
   createAuthContextFromHeaders(headers: Record<string, string>): AuthContext | null {
     const userId = headers['x-auth-user-id'];
     const email = headers['x-auth-email'];
-    const tokenType = headers['x-auth-token-type'] as 'cognito' | 'google';
+    const tokenType = headers['x-auth-token-type'] as 'cognito';
     const emailVerified = headers['x-auth-email-verified'] === 'true';
 
     if (!userId || !email || !tokenType) {
       return null;
     }
 
-    const baseContext: AuthContext = {
+    // All tokens are Cognito tokens
+    return {
       userId,
       email,
       tokenType,
       emailVerified,
+      username: headers['x-auth-username'] || userId,
+      tokenUse: headers['x-auth-token-use'] || '',
+      name: headers['x-auth-name'] || '',
+      givenName: headers['x-auth-given-name'] || '',
+      familyName: headers['x-auth-family-name'] || '',
+      picture: headers['x-auth-picture'] || '',
     };
-
-    if (tokenType === 'cognito') {
-      return {
-        ...baseContext,
-        username: headers['x-auth-username'] || userId,
-        tokenUse: headers['x-auth-token-use'] || '',
-      };
-    } else {
-      return {
-        ...baseContext,
-        name: headers['x-auth-name'] || '',
-        givenName: headers['x-auth-given-name'] || '',
-        familyName: headers['x-auth-family-name'] || '',
-        picture: headers['x-auth-picture'] || '',
-      };
-    }
   }
 
   async authorizeRequest(authorizationHeader: string): Promise<AuthContext> {
