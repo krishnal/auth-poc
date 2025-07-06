@@ -92,12 +92,10 @@ export class AuthPocStack extends cdk.Stack {
           cognito.OAuthScope.PROFILE,
         ],
         callbackUrls: [
-          'http://localhost:3001/api/auth/callback',
-          `https://auth-${props.stage}.demo.krishnal.com/api/auth/callback`,
+          'http://localhost:3001/auth/callback',
         ],
         logoutUrls: [
           'http://localhost:3000/',
-          `https://auth-${props.stage}.demo.krishnal.com/`,
         ],
       },
       supportedIdentityProviders: [

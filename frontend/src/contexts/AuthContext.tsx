@@ -58,6 +58,7 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
         user: null,
         tokens: null,
         isAuthenticated: false,
+        isLoading: false,
         error: null,
       };
     case 'SET_LOADING':
@@ -224,7 +225,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     initAuth();
-  }, [checkAuthStatus]);
+  }, []);
 
   // Auto token refresh
   useEffect(() => {

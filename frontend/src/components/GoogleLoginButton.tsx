@@ -14,7 +14,9 @@ export const GoogleLoginButton: React.FC = () => {
     authorizeParams.append('redirect_uri', `http://localhost:3001/auth/callback`)
     authorizeParams.append('identity_provider', 'Google')
     authorizeParams.append('scope', 'profile email openid')
+    console.log(authorizeParams);
     const googleAuthUrl = `${authDomain}/oauth2/authorize?${authorizeParams.toString()}`;
+    console.log(googleAuthUrl);
     window.location.href = googleAuthUrl;
   };
 
